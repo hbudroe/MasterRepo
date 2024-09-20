@@ -6,6 +6,6 @@
 -Email: hbudroe@uga.edu
 -Purpose: Practicing Git and Github
 
-###Planned Content
+### Planned Content
 -Lots of things!
 
