@@ -1,0 +1,18 @@
+---
+title: "SalpPOOP Project Analyses 9_20_24"
+author: "Hannah Budroe"
+date: "2024-09-20"
+output: html_document
+---
+
+#This script is intended for analyses of mesozooplankton diversity and community structure ~salp bloom ~size fractions ~depth ~water masses
+#Script created after (new and final) Github repository was created [I will be better at version control from now on]
+#many of the initial version analyses will be imported from Rmd scripts I previously created (SalpPOOP Paper Figures V2, etc.) & updated
+
+#Libraries ----
+
+#Functions ----
+
+###Section 1 () ----
+
+###Section 2 () ----
