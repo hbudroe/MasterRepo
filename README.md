@@ -1,2 +1,3 @@
 # MasterRepo
-Master Repository for all files/projects
+## Master Repository for all projects (Starting from scratch with good version control)
+
