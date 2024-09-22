@@ -10,9 +10,141 @@ output: html_document
 #many of the initial version analyses will be imported from Rmd scripts I previously created (SalpPOOP Paper Figures V2, etc.) & updated
 
 #Libraries ----
+library(tidyverse)
+library(vegan)
+library(phyloseq)
 
 #Functions ----
 
 ###Section 1 () ----
 
-###Section 2 () ----
+###Figure 2 (Compositional Depth Plots) ----
+#Figure 2a: Total community read/biomass abundance ~depth
+```{r}
+#add in columns (interval width + depth midpoints) to physeq object
+sample_data(mzg)$BinWidth = sample_data(mzg)$MaxDepth - sample_data(mzg)$MinDepth
+sample_data(mzg)$Midpoint = (sample_data(mzg)$BinWidth/2) + sample_data(mzg)$MinDepth
+
+#Combine size fraction biomass, prune for ease of plotting right now
+mzg %>% sample_data() %>% dplyr::group_by(Net,Tow,Station) %>% dplyr::summarise(Biomass=sum(condensedBiomass)) ->mdf1 #df of added biomass
+mzg %>% filter_taxa(function(x) sum(x) > 30 , TRUE) %>% psmelt() -> mdf
+#mzg %>% psmelt() -> mdf
+#prune taxa with less >30reads
+
+mdf1 %>% right_join(mdf) ->mdf
+disp1 <- max(mdf$Abundance)*3.3
+mdf$Abundance[mdf$DielPattern == "Night"] <- mdf$Abundance[mdf$DielPattern == "Night"]*-1 
+mdf$Biomass[mdf$DielPattern == "Night"] <- mdf$Biomass[mdf$DielPattern == "Night"]*-1
+
+(p <- ggplot(mdf, aes(width = BinWidth*.9)) +
+  annotate("rect", xmin = -Inf, xmax = Inf, ymin =  -Inf, ymax = 0, fill = "grey60", alpha = 0.5) +
+  geom_bar(aes(x = Midpoint, y = Abundance, fill = Order), stat = "identity") +
+  geom_point(aes(x = Midpoint, y = Biomass*3000,group=DielPattern)) +
+  geom_line(aes(x = Midpoint, y = Biomass*3000, group = DielPattern)) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 4), limits = c(-disp1, disp1), labels=abs, sec.axis = sec_axis(~./3000, name = bquote('MOCNESS Biomass '(mgC/m^3)), scales::pretty_breaks(n = 4), labels = abs)) + #define the name of your second axis
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90)) +
+  #scale_fill_brewer(type = "qual", palette = "Set1") + #fill for each species is different, using a rcolorbrewer palette called "Set1"
+  scale_color_manual(values = "black", name = paste('Zooscan biomass', sep = '')) +# name = bquote(atop('Zooscan Biomass ', (mgC/m^2)))) +  #color for the zooscan biomass is black
+  coord_flip() + 
+  scale_x_reverse() + 
+  labs(x = "Depth (m)", y = "Relative abundance of 18S sequences") + 
+  geom_hline(yintercept = 0, linewidth = 0.2)+
+  facet_grid(~ID, scales="free_x"))
+```
+#Figure 2b: Order == Calanoid read abundance ~depth 
+```{r}
+#add col for vertical bin sizes (depth) + midpoint (abundance line) - doesn't change with tax
+sample_data(mzg)$BinWidth = sample_data(mzg)$MaxDepth - sample_data(mzg)$MinDepth
+sample_data(mzg)$Midpoint = (sample_data(mzg)$BinWidth/2) + sample_data(mzg)$MinDepth
+
+mzg %>% sample_data() %>% dplyr::group_by(Net,Tow,Station) %>% dplyr::summarise(Biomass=sum(condensedBiomass)) ->mdf1 #df of added biomass
+mzg %>% subset_taxa(Order=="Calanoida") %>% psmelt() -> mdf_calanoida
+mdf1 %>% right_join(mdf_calanoida) ->mdf
+
+#skip the biomass summarization, mdf joining with mdf1 ?
+disp1 <- max(mdf$Abundance)*3.3 
+mdf$Abundance[mdf$DielPattern == "Night"] <- mdf$Abundance[mdf$DielPattern == "Night"]*-1 
+mdf$Biomass[mdf$DielPattern == "Night"] <- mdf$Biomass[mdf$DielPattern == "Night"]*-1
+
+#Plot
+(p <- ggplot(mdf, aes(width = BinWidth*.9)) +
+  annotate("rect", xmin = -Inf, xmax = Inf, ymin =  -Inf, ymax = 0, fill = "grey60", alpha = 0.5) +
+  geom_bar(aes(x = Midpoint, y = Abundance, fill = Family), stat = "identity") +
+  geom_point(aes(x = Midpoint, y = Biomass*3000,group=DielPattern)) +
+  geom_line(aes(x = Midpoint, y = Biomass*3000, group = DielPattern)) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 4), limits = c(-disp1, disp1), labels=abs, sec.axis = sec_axis(~./3000, name = bquote('Total MOCNESS Biomass '(mgC/m^3)), scales::pretty_breaks(n = 4), labels = abs)) + #define the name of your second axis
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90)) +
+  #scale_fill_brewer(type = "qual", palette = "Set1") + #fill for each species is different, using a rcolorbrewer palette called "Set1"
+  scale_color_manual(values = "black", name = paste('Zooscan biomass', sep = '')) +# name = bquote(atop('Zooscan Biomass ', (mgC/m^2)))) +  #color for the zooscan biomass is black
+  coord_flip() + 
+  scale_x_reverse() + 
+  labs(x = "Depth (m)", y = "Relative abundance of 18S Calanoida sequences") + 
+  geom_hline(yintercept = 0, linewidth = 0.2)+
+  facet_grid(~ID, scales="free_x"))
+```
+#Figure 2c: Class == Malacostraca read abundance ~depth
+```{r}
+#add col for vertical bin sizes (depth) + midpoint (abundance line) - doesn't change with tax
+sample_data(mzg)$BinWidth = sample_data(mzg)$MaxDepth - sample_data(mzg)$MinDepth
+sample_data(mzg)$Midpoint = (sample_data(mzg)$BinWidth/2) + sample_data(mzg)$MinDepth
+
+mzg %>% sample_data() %>% dplyr::group_by(Net,Tow,Station) %>% dplyr::summarise(Biomass=sum(condensedBiomass)) ->mdf1 #df of added biomass
+mzg %>% subset_taxa(Class=="Malacostraca") %>% psmelt() -> mdf_malacostraca
+mdf1 %>% right_join(mdf_malacostraca) ->mdf
+
+#skip the biomass summarization, mdf joining with mdf1 ?
+disp1 <- max(mdf$Abundance)*3.3 
+mdf$Abundance[mdf$DielPattern == "Night"] <- mdf$Abundance[mdf$DielPattern == "Night"]*-1 
+mdf$Biomass[mdf$DielPattern == "Night"] <- mdf$Biomass[mdf$DielPattern == "Night"]*-1
+
+#Plot
+(p <- ggplot(mdf, aes(width = BinWidth*.9)) +
+  annotate("rect", xmin = -Inf, xmax = Inf, ymin =  -Inf, ymax = 0, fill = "grey60", alpha = 0.5) +
+  geom_bar(aes(x = Midpoint, y = Abundance, fill = Order), stat = "identity") +
+  geom_point(aes(x = Midpoint, y = Biomass*3000,group=DielPattern)) +
+  geom_line(aes(x = Midpoint, y = Biomass*3000, group = DielPattern)) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 4), limits = c(-disp1, disp1), labels=abs, sec.axis = sec_axis(~./3000, name = bquote('Total MOCNESS Biomass '(mgC/m^3)), scales::pretty_breaks(n = 4), labels = abs)) + #define the name of your second axis
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90)) +
+  #scale_fill_brewer(type = "qual", palette = "Set1") + #fill for each species is different, using a rcolorbrewer palette called "Set1"
+  scale_color_manual(values = "black", name = paste('Zooscan biomass', sep = '')) +# name = bquote(atop('Zooscan Biomass ', (mgC/m^2)))) +  #color for the zooscan biomass is black
+  coord_flip() + 
+  scale_x_reverse() + 
+  labs(x = "Depth (m)", y = "Relative abundance of 18S Malacostracan sequences") + 
+  geom_hline(yintercept = 0, linewidth = 0.2)+
+  facet_grid(~ID, scales="free_x"))
+```
+#Figure 2d? All GZ read abundance ~depth
+```{r}
+#add col for vertical bin sizes (depth) + midpoint (abundance line) - doesn't change with tax
+sample_data(mzg)$BinWidth = sample_data(mzg)$MaxDepth - sample_data(mzg)$MinDepth
+sample_data(mzg)$Midpoint = (sample_data(mzg)$BinWidth/2) + sample_data(mzg)$MinDepth
+
+mzg %>% sample_data() %>% dplyr::group_by(Net,Tow,Station) %>% dplyr::summarise(Biomass=sum(condensedBiomass)) ->mdf1 #df of added biomass
+mzg %>% subset_taxa(Class == "Hydrozoa" | Class == "Appendicularia" | Class == "Scyphozoa" | Class == "Thaliacea" | Phylum == "Ctenophora") %>% psmelt() -> mdf_gz
+mdf1 %>% right_join(mdf_gz) ->mdf
+
+#skip the biomass summarization, mdf joining with mdf1 ?
+disp1 <- max(mdf$Abundance)*3.3 
+mdf$Abundance[mdf$DielPattern == "Night"] <- mdf$Abundance[mdf$DielPattern == "Night"]*-1 
+mdf$Biomass[mdf$DielPattern == "Night"] <- mdf$Biomass[mdf$DielPattern == "Night"]*-1
+
+#Plot
+(p <- ggplot(mdf, aes(width = BinWidth*.9)) +
+  annotate("rect", xmin = -Inf, xmax = Inf, ymin =  -Inf, ymax = 0, fill = "grey60", alpha = 0.5) +
+  geom_bar(aes(x = Midpoint, y = Abundance, fill = Order), stat = "identity") +
+  geom_point(aes(x = Midpoint, y = Biomass*3000,group=DielPattern)) +
+  geom_line(aes(x = Midpoint, y = Biomass*3000, group = DielPattern)) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 4), limits = c(-disp1, disp1), labels=abs, sec.axis = sec_axis(~./3000, name = bquote('Total MOCNESS Biomass '(mgC/m^3)), scales::pretty_breaks(n = 4), labels = abs)) + #define the name of your second axis
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90)) +
+  #scale_fill_brewer(type = "qual", palette = "Set1") + #fill for each species is different, using a rcolorbrewer palette called "Set1"
+  scale_color_manual(values = "black", name = paste('Zooscan biomass', sep = '')) +# name = bquote(atop('Zooscan Biomass ', (mgC/m^2)))) +  #color for the zooscan biomass is black
+  coord_flip() + 
+  scale_x_reverse() + 
+  labs(x = "Depth (m)", y = "Relative abundance of 18S GZ sequences") + 
+  geom_hline(yintercept = 0, linewidth = 0.2)+
+  facet_grid(~ID, scales="free_x"))
+```
