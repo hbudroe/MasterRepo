@@ -1,0 +1,261 @@
+---
+title: "CA Bight Analyses"
+author: "Hannah Budroe"
+date: "2024-09-11"
+output: html_document
+---
+
+#Script to begin working with Mirayana's CA Bight dataset
+#Goals: familiarize with common taxa for primers & replicate common lab analyses in R
+#Dataset and initial code pulled from lab github repo (Stories-Thru-Data-Workshop2024)
+#Defined functions ----
+#define function for normalization
+#from Moira - normalize number of reads to median sampling depth
+phyloseq_normalize_median <- function (ps) { 
+  ps_median = median(sample_sums(ps))
+  normalize_median = function(x, t=ps_median) (if(sum(x) > 0){ round(t * (x / sum(x)))} else {x})
+  ps = transform_sample_counts(ps, normalize_median)
+  cat(str_c("/n========== /n") )
+  print(ps)
+  cat(sprintf("/n==========/nThe median number of reads used for normalization is  %.0f", ps_median))
+  return(ps)
+}
+
+###Pre-Processing (read in, decontam, filtering, phyloseq) ----
+
+##Part 00-create-phyloseq-object ; pulled code from Github repo ----
+#ended up doing all of this first chunk through the cluster
+```{r}
+###Load Libraries 
+library(phyloseq)
+library(tidyr)
+library(devtools)
+#remotes::install_github("jbisanz/qiime2R")
+#had to remove github credentials otherwise big error (reinstall afterwards) 
+library(qiime2R)
+#if (!requireNamespace("BiocManager", quietly = TRUE))
+   # install.packages("BiocManager")
+#BiocManager::install("decontam")
+library(decontam)
+
+###Read in artifact files (qza) using qiime2R
+otus <- read_qza("C:/Users/budro/OneDrive/Desktop/UGA/CA_Bight18/RawData/03-dada2-independent-table.qza")
+taxonomy <- read_qza("C:/Users/budro/OneDrive/Desktop/UGA/CA_Bight18/RawData/04-taxonomy-independent-classification.qza")
+metadata <- read.delim2("C:/Users/budro/OneDrive/Desktop/UGA/CA_Bight18/RawData/metadata_SONGS_CABight_DDT.txt") #reads in fine without (... sep = "/t", row.names = 1)
+
+###Extract data from qza files and reformat taxonomy table
+otu_df <- otus$data
+taxonomy_df <- taxonomy$data
+head(taxonomy_df)
+#Reformat taxonomy -- split each tax level into its own column
+taxonomy_fixed_df <-taxonomy_df %>%
+  separate_wider_delim(Taxon, delim = ";", names_sep = "", too_few = "align_start")
+head(taxonomy_fixed_df)
+
+###Merge into phyloseq object
+# fix taxonomy format 
+taxonomy_fixed_df <- as.data.frame(taxonomy_fixed_df) # force into a dataframe - was tibble
+row.names(taxonomy_fixed_df) <- taxonomy_fixed_df$Feature.ID # make first column into row names
+taxonomy_fixed_df$Feature.ID <- NULL # remove 1st column since duplicated in index + col
+taxonomy_matrix <- as.matrix(taxonomy_fixed_df) # convert df -> matrix for physeq input
+
+rownames(metadata) <- metadata$sample_ID #index metadata by sample_ID
+
+physeq_otu <- otu_table(otu_df, taxa_are_rows = T) # convert into phyloseq object
+physeq_tax <- tax_table(taxonomy_matrix) # convert into phyloseq object
+physeq_meta <- sample_data(metadata) # convert into phyloseq object
+#was running into errors so confirm here
+head(sample_names(physeq_otu))
+head(sample_names(physeq_meta)) #was not indexed by sample_ID --> go back and index
+
+phylo_object <- phyloseq(physeq_otu, physeq_tax, physeq_meta) # merge into phyloseq object
+
+###Part 01-remove-contaminants ; pulled from Github repo ----
+
+###Identify contaminant ASVs 
+
+sample_data(phylo_object_tree)$is.neg <- sample_data(phylo_object_tree)$sample_control == "control" # create a sample-variable for contaminants
+phylo_object_contaminants <- isContaminant(phylo_object_tree, method = "prevalence", neg="is.neg", threshold=0.5, detailed = TRUE, normalize = TRUE) # detect contaminants based on control samples and their ASV prevalance
+table(phylo_object_contaminants$contaminant) # check number of contaminant ASVs
+
+
+###Part 01.1-don't remove contam but temporarily at least filter and remove pos/neg controls
+
+#here in the cluster I was able to remove contaminants
+phylo_obj_low <- filter_taxa(phylo_object, function(x) sum(x > 5) > 1, TRUE) # remove ASVs that are rare in each sample 
+phylo_obj_low_controls <- subset_samples(phylo_obj_low, region != "kitblank" & region!= "negativecontrol" & region != "positivecontrol") ## Remove blanks and positive controls
+phylo_obj_low_controls
+```
+
+##Part 01.5-read in cluster created physeq object, merge into physeq obj ; not in repo
+#did this local R
+```{r}
+###libraries
+library(tidyverse)
+library(phyloseq)
+library(qiime2R)
+#install package for merging samples
+#library(remotes)
+#remove and then reinstall Github PAT for installation
+#gitcreds::gitcreds_delete()
+#remotes::install_github("mikemc/speedyseq")
+#gitcreds::gitcreds_set()
+library(speedyseq)
+library(vegan)
+
+
+###Read in files
+otus <- read.csv("C:/Users/budro/OneDrive/Desktop/UGA/CA_Bight18/ProcessedData/contam_removed/CA_Bight_otutable_sans_contam_low_controls.csv")
+tax <- read.csv("C:/Users/budro/OneDrive/Desktop/UGA/CA_Bight18/ProcessedData/contam_removed/CA_Bight_taxtable_sans_contam_low_controls.csv")
+metadata <- read.csv("C:/Users/budro/OneDrive/Desktop/UGA/CA_Bight18/ProcessedData/contam_removed/CA_Bight_metadata_sans_contam_low_controls.csv")
+
+###reformat (index) otus and tax table
+otu <- otus %>% as.data.frame()
+row.names(otu) <- otu$X
+otu$X <- NULL #get rid of the extra taxID column now
+
+taxs <- tax %>% as.data.frame()
+rownames(taxs) <- taxs$X
+taxs$X <- NULL
+
+meta <- metadata %>% as.data.frame()
+meta$sample_ID <- str_replace_all(meta$sample_ID, '-', '.') #replace all '-' in sample names with '.' to match up with otus (otherwise 1/2 samples dropped when phyloseq obj merge)
+rownames(meta) <- meta$sample_ID
+meta$sample_ID <- NULL
+
+###add in phyloseq tree
+tree <- read_qza("C:/Users/budro/OneDrive/Desktop/UGA/CA_Bight18/RawData/05-phylogeny-independent-tree-midrooted.qza")
+phylo_tree <- tree$data # tree data is stored as a phyloseq object
+
+physeq_otu <- otu_table(otu, taxa_are_rows = T) 
+taxs %>% as.matrix() %>% tax_table() -> physeq_tax #if don't then changes hash index
+physeq_meta <- sample_data(meta)
+cabight_phylo <- phyloseq(physeq_otu, physeq_tax, physeq_meta, phylo_tree)
+```
+#TEST what's going on here - comparing names realized that meta sample names had a - in some sample names so had to go back in code and str_replace to .
+otu_name <- sample_names(physeq_otu) %>% as.matrix()
+meta_name <- sample_names(physeq_meta) %>% as.matrix()
+
+###Additional pre-processing & filtering 
+```{r}
+#Previously in cluster already removed rare ASVs with less than 5 reads
+# DON'T DO THIS YET (AFTER TALKING TO HOLLY) filter out samples with <1k reads
+#cabight_phylo <- prune_samples(sample_sums(cabight_phylo) >= 1000, cabight_phylo)
+
+#DDT project only
+ddt_phylo <- subset_samples(cabight_phylo, project == "DDT")
+
+#Merge sample replicates based on name (different PCR wells)
+ddt_merged2 <- speedyseq::merge_samples2(ddt_phylo, "sample_name", fun_otu = sum, FALSE) #This works? double check but looks way better
+
+#Create several different taxonomic objects
+ddt_merge_filt <- subset_taxa(ddt_merged2, Taxon1 != "Unassigned") 
+ddt_metazoans <- subset_taxa(ddt_merged2, Taxon7 == "D_6__Metazoa") #if want just the barrel and background (not other controls) B18_stratum == "DDT_Barrel" | habitat == "DDT_Background"
+ddt_nematodes <- subset_taxa(ddt_metazoans, Taxon14 == "D_13__Nematoda")
+
+#Normalize - using Moira defined function (by median seq depth)
+ddt_norm <- phyloseq_normalize_median(ddt_merge_filt) #don't normalize yet?
+
+````
+
+###Processing analyses
+```{r}
+#Plot sample_sums to see distribution
+plot(sample_sums(ddt_phylo)) #for cabight and ddt_phylo
+hist(sample_sums(ddt_merged2))
+plot_bar(ddt_merged2) #do before and after merge
+plot_bar(ddt_norm)
+
+#showing ASV read count and sample read count -- pulled from online
+readsumsdf = data.frame(nreads = sort(taxa_sums(ddt_merged2), TRUE), sorted = 1:ntaxa(ddt_merged2), 
+    type = "OTUs")
+readsumsdf = rbind(readsumsdf, data.frame(nreads = sort(sample_sums(ddt_merged2), 
+    TRUE), sorted = 1:nsamples(ddt_merged2), type = "Samples"))
+title = "Total number of reads"
+(p = ggplot(readsumsdf, aes(x = sorted, y = nreads)) + geom_bar(stat = "identity")+
+    ggtitle(title)+
+    scale_y_log10()+
+    facet_wrap(~type, 1, scales = "free"))
+
+###COME BACK LATER PROCESSING
+#species accumulation curves
+#spec_ca <- specaccum(otu_table(cabight_phylo),  method = "random", permutations = 100)
+#takes >1hr to run, having difficulties with understanding?
+
+## Pulled this section of SAC code from the Cordier github fig 1c ##
+#want to make curves for DDT background and DDT barrels -- each habitat
+ddt_barrels <- subset_samples(ddt_phylo, habitat == "DDT_Barrel")
+ddt_background <- subset_samples(ddt_phylo, habitat == "DDT_Background")
+ddt_controls <- subset_samples(ddt_phylo, habitat != "DDT_Barrel" & habitat != "DDT_Background" )
+## specaccum 
+sp_accum_ddt_barrel <- specaccum(otu_table(ddt_barrels), method = "random")
+sp_accum_ddt_bg <- specaccum(otu_table(ddt_background), method = "random")
+sp_accum_ddt_control <- specaccum(otu_table(ddt_controls), method = "random")
+## Plot accumulation curves
+pdf("ASVs_accumulation_curves_sampling_effort_habitats.pdf", width=3.5, height=4)
+plot(sp_accum_ddt_barrel, col = "cadetblue1", ylab = "#ASVs (10³)", xlab = "#Samples", ci.type="poly", lwd=2, ylim= c(1,length(otu_table(ddt_barrels))+1000), ci.lty=0, ci.col=alpha("cadetblue1", alpha = 0.2), cex.axis=0.6)
+
+lines(sp_accum_ddt_bg, col = "darkgoldenrod1", ci.type="poly", lwd=2, ci.lty=0, ci.col=alpha("darkgoldenrod1", alpha = 0.2))
+lines(sp_accum_ddt_control, col = "blue4", ci.type="poly", lwd=2, ci.lty=0, ci.col=alpha("blue4", alpha = 0.2))
+dev.off()
+```
+
+
+###ANALYSES
+```{r}
+#Alpha Diversity Analyses
+plot_richness(ddt_merged2, x = "habitat", measures = c("Shannon", "Observed")) +
+  geom_boxplot(aes(fill = site)) 
+plot_richness(ddt_merged2, x = "barrel_zone", measures = c("Shannon", "Observed")) +
+  geom_boxplot(aes(fill = core_fraction)) #~habitat, core_fraction
+
+#NMDS
+set.seed(1234)
+ord <- ordinate(ddt_norm, "NMDS", "bray",k=3,permutations=999)
+plot_ordination(ddt_norm,ord,type="samples",color="core_fraction")+
+  theme(axis.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        panel.background = element_blank(), panel.border = element_rect(fill = NA, colour = "grey30"), 
+        axis.ticks = element_blank(), axis.text = element_blank(), legend.key = element_blank(), 
+        legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 9, colour = "grey30")) #+
+facet_grid(~barrel_zone)
+
+#try heatmap but first filter for OTUs with at least 20%
+filter_taxa(ddt_norm, function(x) sum(x > 3) > (0.2*length(x)), TRUE) %>% plot_heatmap(, method = "NMDS", distance = "bray")+
+  facet_grid(~core_fraction+barrel_zone, scales = "free_x")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+###Alpha Diversity Analysis - come back later
+```{r}
+
+plot_richness(ddt_metazoans, x = "habitat", measures = c("Observed")) +
+  geom_boxplot(aes(fill = site)) #+ facet_wrap(habitat ~ ., scales = "free", drop = TRUE, ncol = 2, shrink = T) +
+  theme_bw() #+
+  theme(axis.text.x = element_text(angle = 90))#from github repo
+
+plot_richness(ddt_phylo_filt, x = "habitat", measures = c("Shannon")) +
+  geom_boxplot(aes(fill = barrel_ID))+ #from github repo
+  facet_grid(~B18_stratum, scales = "free")
+
+plot_richness(ddt_phylo_filt, x = "barrel_zone", measures = c("Shannon")) +
+  geom_boxplot(aes(fill = barrel_ID))#+ #from github repo
+  facet_grid(~B18_stratum, scales = "free")
+
+plot_richness(ddt_phylo_megafilt, x = "barrel_zone", measures = c("Shannon")) +
+  geom_boxplot(aes(fill = barrel_ID))+ #from github repo
+  facet_grid(~core_fraction, scales = "free") 
+
+```
+
+
