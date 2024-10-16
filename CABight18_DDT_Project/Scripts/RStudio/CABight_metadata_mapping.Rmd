@@ -1,0 +1,51 @@
+---
+title: "CABight_Metadata_Mapping"
+author: "Hannah Budroe"
+date: "2024-10-11"
+output: html_document
+---
+
+#Load libraries
+```{r}
+library(tidyverse)
+library(readxl)
+```
+
+#Read in Mirayana's new input files
+```{r}
+path <- "CABight18_DDT_Project/Metadata/BikLab sample info v1.xlsx"
+chem_data <- read_excel(path, sheet = "chemistry")
+sed_data <- read_excel(path, sheet = "Sediment")
+index_data <- read_excel(path, sheet = "Indices - station info")
+```
+
+#process chem_data ----
+```{r}
+chem_data <- chem_data[-1,] #get rid of A1N1 empty row
+
+#want to modify analytename cols to have units
+chem_data$analytename <- gsub(" ", "_", chem_data$analytename)
+chem_data$units <- gsub(" ", "_", chem_data$units) #this replaces all spaces compared to str_replace
+
+#replace % and %_dry_weight in units to %_dw 
+chem_data$units[chem_data$units == "%"] <- "%_dw"
+chem_data$units[chem_data$units == "%_dry_weight"] <- "%_dw"
+
+chem_data$analyte <- paste0(chem_data$analytename, "_", chem_data$units) #check 125=125 yay
+
+#remove the NA samples
+chem_data %>% filter(!is.na(analytename)) -> chem_data
+
+#initial check on unit/anlayte matching-- had to go back and fix
+length(unique(chem_data$analytename)) #124
+length(unique(chem_data$analyte)) #124!!! (was 125=127 earlier) uh oh ok so something doesn't match (there's 5 unique units total)
+#there's the expected %dw and ng/g, but also %, ug/g, and NA - ug ok since consistent?
+#there are 10 sites for which NA_NA (not chem data at all beside site) --> remove these 
+
+chem_data %>% pivot_wider(id_cols = site, names_from = analyte, values_from = result) -> q
+#doesn't work when I gather by site ?
+```
+When I do
+B18-10023 (and a few others) have duplicated chemistry values --> so the pivot wider has c(,)
+This is the same as in the spreadsheet -->
+
