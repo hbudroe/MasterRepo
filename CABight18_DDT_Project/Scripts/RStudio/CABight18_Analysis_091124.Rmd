@@ -156,14 +156,17 @@ ddt_nematodes <- subset_taxa(ddt_metazoans, Taxon14 == "D_13__Nematoda")
 #Normalize - using Moira defined function (by median seq depth)
 ddt_norm <- phyloseq_normalize_median(ddt_merge_filt) #don't normalize yet?
 
+#ddt just the barrels and background (exclude far background)
+ddt_merged2 %>% subset_samples(B18_stratum == "DDT_Barrel" | B18_stratum == "DDT_Background") -> ddt_barrel_bg
+ddt_merge_filt %>% subset_samples(B18_stratum == "DDT_Barrel" | B18_stratum == "DDT_Background") %>% phyloseq_normalize_median() -> ddt_barrel_bg_norm
 ````
 
 ###Processing analyses
 ```{r}
 #Plot sample_sums to see distribution
-plot(sample_sums(ddt_phylo)) #for cabight and ddt_phylo
-hist(sample_sums(ddt_merged2))
-plot_bar(ddt_merged2) #do before and after merge
+plot(sample_sums(ddt_barrel_bg)) #for cabight and ddt_phylo
+hist(sample_sums(ddt_barrel_bg))
+plot_bar(ddt_barrel_bg) #do before and after merge
 plot_bar(ddt_norm)
 
 #showing ASV read count and sample read count -- pulled from online
@@ -179,83 +182,63 @@ title = "Total number of reads"
 
 ###COME BACK LATER PROCESSING
 #species accumulation curves
-#spec_ca <- specaccum(otu_table(cabight_phylo),  method = "random", permutations = 100)
-#takes >1hr to run, having difficulties with understanding?
 
-## Pulled this section of SAC code from the Cordier github fig 1c ##
-#want to make curves for DDT background and DDT barrels -- each habitat
-ddt_barrels <- subset_samples(ddt_phylo, habitat == "DDT_Barrel")
-ddt_background <- subset_samples(ddt_phylo, habitat == "DDT_Background")
-ddt_controls <- subset_samples(ddt_phylo, habitat != "DDT_Barrel" & habitat != "DDT_Background" )
-## specaccum 
-sp_accum_ddt_barrel <- specaccum(otu_table(ddt_barrels), method = "random")
-sp_accum_ddt_bg <- specaccum(otu_table(ddt_background), method = "random")
-sp_accum_ddt_control <- specaccum(otu_table(ddt_controls), method = "random")
-## Plot accumulation curves
-pdf("ASVs_accumulation_curves_sampling_effort_habitats.pdf", width=3.5, height=4)
-plot(sp_accum_ddt_barrel, col = "cadetblue1", ylab = "#ASVs (10³)", xlab = "#Samples", ci.type="poly", lwd=2, ylim= c(1,length(otu_table(ddt_barrels))+1000), ci.lty=0, ci.col=alpha("cadetblue1", alpha = 0.2), cex.axis=0.6)
-
-lines(sp_accum_ddt_bg, col = "darkgoldenrod1", ci.type="poly", lwd=2, ci.lty=0, ci.col=alpha("darkgoldenrod1", alpha = 0.2))
-lines(sp_accum_ddt_control, col = "blue4", ci.type="poly", lwd=2, ci.lty=0, ci.col=alpha("blue4", alpha = 0.2))
-dev.off()
 ```
 
 
-###ANALYSES
+###ANALYSES hannah
 ```{r}
 #Alpha Diversity Analyses
-plot_richness(ddt_merged2, x = "habitat", measures = c("Shannon", "Observed")) +
-  geom_boxplot(aes(fill = site)) 
-plot_richness(ddt_merged2, x = "barrel_zone", measures = c("Shannon", "Observed")) +
+plot_richness(ddt_barrel_bg, x = "habitat", measures = c("Shannon", "Observed")) +
+  geom_boxplot(aes(fill = barrel_ID)) #run on ddt_merged2 or ddt_barrel_bg
+plot_richness(ddt_barrel_bg, x = "barrel_zone", measures = c("Shannon", "Observed")) +
   geom_boxplot(aes(fill = core_fraction)) #~habitat, core_fraction
+plot_richness(ddt_barrel_bg, x = "barrel_zone", measures = c("Shannon")) +
+  geom_boxplot(aes(fill = habitat))+
+  facet_grid(~core_fraction)
 
 #NMDS
 set.seed(1234)
-ord <- ordinate(ddt_norm, "NMDS", "bray",k=3,permutations=999)
-plot_ordination(ddt_norm,ord,type="samples",color="core_fraction")+
+ord <- ordinate(ddt_barrel_bg_norm, "NMDS", "bray",k=3,permutations=999)
+plot_ordination(ddt_barrel_bg_norm,ord,type="samples",color="core_fraction", shape = "barrel_zone")+
   theme(axis.title = element_text(size = 10, face = "bold", colour = "grey30"), 
         panel.background = element_blank(), panel.border = element_rect(fill = NA, colour = "grey30"), 
         axis.ticks = element_blank(), axis.text = element_blank(), legend.key = element_blank(), 
         legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
         legend.text = element_text(size = 9, colour = "grey30")) #+
-facet_grid(~barrel_zone)
+facet_grid(~barrel_ID)
 
 #try heatmap but first filter for OTUs with at least 20%
 filter_taxa(ddt_norm, function(x) sum(x > 3) > (0.2*length(x)), TRUE) %>% plot_heatmap(, method = "NMDS", distance = "bray")+
   facet_grid(~core_fraction+barrel_zone, scales = "free_x")
 ```
-
-
-
-
-
-
-
-
-
-
-
-
-###Alpha Diversity Analysis - come back later
+###Analyses Neira 2024
 ```{r}
+#NMDS ~ 450/451 (already did zone)
+#grep D450/451 from first 4 chr in string %>% plot?
 
-plot_richness(ddt_metazoans, x = "habitat", measures = c("Observed")) +
-  geom_boxplot(aes(fill = site)) #+ facet_wrap(habitat ~ ., scales = "free", drop = TRUE, ncol = 2, shrink = T) +
-  theme_bw() #+
-  theme(axis.text.x = element_text(angle = 90))#from github repo
-
-plot_richness(ddt_phylo_filt, x = "habitat", measures = c("Shannon")) +
-  geom_boxplot(aes(fill = barrel_ID))+ #from github repo
-  facet_grid(~B18_stratum, scales = "free")
-
-plot_richness(ddt_phylo_filt, x = "barrel_zone", measures = c("Shannon")) +
-  geom_boxplot(aes(fill = barrel_ID))#+ #from github repo
-  facet_grid(~B18_stratum, scales = "free")
-
-plot_richness(ddt_phylo_megafilt, x = "barrel_zone", measures = c("Shannon")) +
-  geom_boxplot(aes(fill = barrel_ID))+ #from github repo
-  facet_grid(~core_fraction, scales = "free") 
-
+#do dbrda when have more env vars?
 ```
 
+
+
+###Exploratory analyses for assessing pelagic signals in benthic metaB ----
+```{r}
+View(tax_table(cabight_phylo))
+speedyseq::merge_samples2(cabight_phylo, "sample_name", fun_otu = sum, FALSE) %>% phyloseq_normalize_median() -> cabight_gelats
+cabight_gelats <- subset_taxa(cabight_gelats, Taxon14 %in% c("D_13__Thaliacea", "D_13__Appendicularia")) #gives 40 asvs
+
+#look at read distributions
+plot(sample_sums(cabight_gelats)) #for cabight and ddt_phylo
+hist(sample_sums(cabight_gelats))
+plot_bar(cabight_gelats) #do before and after merge
+
+#basic analysis to look at patterns
+plot_richness(cabight_gelats, x = "core_fraction", measures = "Observed") +
+  geom_boxplot(aes(fill = depth_m))
+
+estimate_richness(cabight_gelats, measures = "Observed") -> alphadiv
+rownames_to_column(alphadiv, var = "sample_name") -> alphadiv
+merge(data.frame(sample_data(cabight_gelats)), alphadiv, by = "sample_name") -> alphadiv
+````
 

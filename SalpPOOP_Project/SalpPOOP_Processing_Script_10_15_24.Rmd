@@ -1,0 +1,128 @@
+---
+title: "SalpPOOP Project Sample Pre-Processing"
+author: "Hannah Budroe"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+This follows first the Pre-processing script, then the phyloseq prep scripts, and any other additional processing found in analysis scripts
+
+#Libraries
+library(googlesheets4)
+#library(plyr)
+library(tidyr)
+library(stringr)
+library(dplyr)
+library(ggplot2)
+library(stats)
+#install.packages("factoextra")
+library(factoextra)
+library(tibble)
+library(phyloseq)
+library(vegan)
+library(data.table)
+
+###Process environmental metadata ----
+
+Collate biomass data + collection data
+```{r}
+#set directory for google sheet
+googdata="https://docs.google.com/spreadsheets/d/1tKhRrnsyRMNwpQpYlr_9HUDoBUYpVK4RIApvrt_piFU/edit#gid=0"
+
+#read biomass + filters into R from google sheets
+ZoopBiomass= read_sheet(googdata)
+FilterWeights=read_sheet(googdata,sheet=2)
+
+#merge biomass + filters -> join by filter + fill in blanks
+Biomass=plyr::join(ZoopBiomass,FilterWeights, type="left") %>% tidyr::fill(Station,Tow, Net)
+
+#Subtract filter weights + group together samples on multiple filters
+Biomass$FinalDW=Biomass$TotalDW-Biomass$Weight
+dplyr::group_by(Biomass,Size,MinSize,Net,Tow,Station) %>%
+  dplyr::summarise(FinalizedWeight=sum(FinalDW)) %>%
+  dplyr::arrange(Station, Tow, Net, Size,MinSize,FinalizedWeight)-> Biomass
+
+#read in tow specs, depths, lat/long/splits + adjust for desired data
+DepthData=read_sheet(googdata, sheet=3) %>% tidyr::fill(Tow,Site,Station)
+TowSpecs=read_sheet(googdata,sheet=4)
+StationLog=read_sheet(googdata,sheet=5)
+StationLog=StationLog[,c(1,26:27)]
+Splits=read_sheet(googdata,sheet=6)
+Splits$Size=str_sub(Splits$Size, end=-3) #truncate mm off size fract
+Splits=fill(Splits,Volume_Filtered) #fill in vol filtered 
+
+#merge everything together
+Biomass <- plyr::join(Biomass,DepthData, type="left") %>% plyr::join(TowSpecs,type="left") %>%
+  plyr::join(StationLog, type="left") %>% plyr::join(Splits,type="left")
+
+#Normalize the biomass data
+Biomass$Splits=as.numeric(Biomass$Splits)
+Biomass$NormalWeight=(Biomass$FinalizedWeight/Biomass$Volume_Filtered)/Biomass$Splits
+```
+Note to self, the $NormalWeight biomass data is not the final value
+
+Add in MOCNESS CTD data and merge with biomass data
+```{r}
+###add in MOCNESS CTD data
+MOCNESS=read_sheet(googdata,sheet=7) %>% fill(Station)
+#only include averaged columns
+indx <- grepl('avg', colnames(MOCNESS))
+MOCNESS=MOCNESS[indx] %>% cbind(MOCNESS[,c(1:2)])
+
+#change mocness data col names
+colnames(MOCNESS)=c("Pressure","Temperature","PotentialTemperature","Salinity",
+                    "Density","Transmissivity","Fluorescence","Oxygen","Angle",
+                    "HorizontalVelocity","VerticalVelocity","Station","Net")
+#fix the net naming discrepancy between ctd and biomass -- corrected 0:8 -> 1-9
+MOCNESS1<-MOCNESS
+MOCNESS$Net=MOCNESS$Net+1
+
+#duplicate station 282 ->286 --- stat286 data was lost, so use 282 similar data
+dup282=MOCNESS[MOCNESS$Station == 282, ]
+dup282$Station=286
+MOCNESS=rbind(MOCNESS,dup282)
+
+#join with biomass
+Biomass=plyr::join(Biomass,MOCNESS, type="left")
+
+#fix biomass units by converting g-> mg
+Biomass$BiomassmgCm3 <- Biomass$NormalWeight*1000
+
+#add in a few extra vars for classification
+#add in epi v meso
+Biomass$DepthZone <- ifelse(Biomass$MaxDepth <=200,"Epipelagic","Mesopelagic")
+#a column just with cycle (no day)
+Biomass$Cycle=substr(Biomass$`Cycle/Day`,start=1,stop=2)
+```
+For now, $BiomassmgCm3 is the final biomass value since it has correct units
+
+(move to phyloseq prep script)
+
+Clean up the sample names in biomass data, clean up cols, add ID vars
+```{r}
+###clean up the sample data
+#in sampdata, make sure that the condensed biomass samples are reflected
+sampdata<-Biomass
+sampdata$test <-ifelse(sampdata$MinSize>=1,"Group","NoGroup") #select out groupings for condensing
+sampdata$test2 <- ifelse(sampdata$MinSize<1,sampdata$MinSize,"x")
+sampdata$test3=paste0(sampdata$test,sampdata$test2,sampdata$Net,sampdata$Tow) #create column to group by
+sampdata %>% dplyr::group_by(test3) %>% summarise(condensedBiomass=sum(BiomassmgCm3)) ->testdf
+#the summarised data is shorter length than the original data so need to duplicate somehow
+left_join(sampdata,testdf,by="test3")->sampdata #it worked! now clean up
+
+#take out pressure,volfiltered, the angles, finalizedweight, date, velocities, split/splits, test columns to condense biomass
+sampdata=sampdata[,-c(11:13,19:23,31:33,37:39)] 
+#create better sample ID
+sampID=paste0(Biomass$`Cycle/Day`, "_T",Biomass$Tow, "_N",Biomass$Net,"_",Biomass$MinSize)
+sampdata$sampID <-sampID
+#index meta by sample IDs
+sampdata=column_to_rownames(sampdata,var="sampID")
+
+#add water mass cycle descriptor 
+sampdata$ID <- ifelse(sampdata$WaterType=="Subantarctic",paste0("SA",substr(sampdata$`Cycle`,start=2,stop=2)),paste0("ST",substr(sampdata$`Cycle`,start=2,stop=2)))
+#8/19/23 realized made mistake and fix nomenclature
+sampdata$ID[sampdata$ID == 'SA5'] <- 'SA3'
+sampdata$ID[sampdata$ID == 'ST3'] <- 'ST1'
+sampdata$ID[sampdata$ID == 'ST4'] <- 'ST2'
+```
+
