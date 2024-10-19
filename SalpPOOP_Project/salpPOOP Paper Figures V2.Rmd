@@ -1,0 +1,1120 @@
+---
+title: "salpPOOP paper figures V2"
+output: html_document
+date: "2023-11-15"
+---
+General Packages
+```{r}
+library(phyloseq)
+library(vegan)
+library(tidyverse)
+
+path="C:/Users/budro/OneDrive/Desktop/SalpPOOP Project/Plots/Paper Plots V2"
+```
+
+Section 1 Figures - Oceanographic Characteristics
+
+T/S Profile -- Moira did
+
+Environmental PCA
+```{r}
+library(ggbiplot)
+
+#define the dataframe containing only numerical variables to map
+df=sample_data(mzg)[,c(17:22)]
+#add color/shape categoricals
+WaterType=sample_data(mzg)$WaterType
+DepthZone=sample_data(mzg)$DepthZone
+#pca 
+pca <- prcomp(df, scale. = TRUE)
+#plot pca with ellipses for water and depth --Version #1 ()
+ggbiplot(pca, obs.scale = 1, var.scale = 1) +
+  geom_point(aes(color=WaterType,shape=DepthZone,size=2,alpha=.5))+
+  stat_ellipse(geom="polygon",aes(group = factor(WaterType), fill=factor(WaterType),alpha=.25), linetype=1) +
+  stat_ellipse(aes(group = factor(DepthZone)),linetype=2) +
+  #theme(legend.direction = 'horizontal', legend.position = 'top')+
+  theme_light()+ #either theme_light or regular theme -- unsure of positioning legend
+  guides(fill="none",size="none",alpha="none") #get rid of alpha + size in legend
+
+#plot screeplot
+print(ggscreeplot(pca),type="cev")
+
+```
+
+
+Section 2 Taxonomic Composition
+
+Biomass Stats- ANOVA
+-condensedBiomass = biomass for each size fraction individual (condensed the larger fracts into the 1 sample but 02,05 still separate)
+```{r}
+#Stat Test ANOVA
+one.way <- aov(condensedBiomass ~ SalpType, data= data.frame(sample_data(mzg)))
+summary(one.way)
+
+two.way <- aov(Shannon ~ WaterType*DepthZone, data=alphadiv)
+summary(two.way)
+
+blocking <- aov(Shannon ~ DepthZone*DielPattern + MinSize, data=alphadiv )
+summary(blocking)
+
+#test between day/night epi/meso
+dvmone <-aov(Shannon ~ DepthZone, data=alphadiv)
+summary(dvmone)
+
+#test variance
+sample_data(mzg)$Size = sample_data(mzg)$MinSize
+dis <- vegdist(otu_table(mzg),method="bray")
+group=sample_data(mzg)$Size
+disp=betadisper(dis,group)
+anova(disp) 
+permutest(disp) 
+boxplot(disp)
+```
+
+
+Depth Read and Biomass Plots ~Steph
+```{r}
+#add in columns, interval width + depth midpoints to physeq object
+sample_data(mzg)$BinWidth = sample_data(mzg)$MaxDepth - sample_data(mzg)$MinDepth
+sample_data(mzg)$Midpoint = (sample_data(mzg)$BinWidth/2) + sample_data(mzg)$MinDepth
+
+#Combine size fraction biomass, prune for ease of plotting right now
+mzg %>% sample_data() %>% dplyr::group_by(Net,Tow,Station) %>% dplyr::summarise(Biomass=sum(condensedBiomass)) ->mdf1 #df of added biomass
+mzg %>% filter_taxa(function(x) sum(x) > 30 , TRUE) %>% psmelt() -> mdf
+
+mdf1 %>% right_join(mdf) ->mdf
+disp1 <- max(mdf$Abundance)*1.1 
+mdf$Abundance[mdf$DielPattern == "Night"] <- mdf$Abundance[mdf$DielPattern == "Night"]*-1 
+mdf$Biomass[mdf$DielPattern == "Night"] <- mdf$Biomass[mdf$DielPattern == "Night"]*-1
+
+p <- ggplot(mdf, aes(width = BinWidth*.9)) +
+  annotate("rect", xmin = -Inf, xmax = Inf, ymin =  -Inf, ymax = 0, fill = "grey60", alpha = 0.5) +
+  geom_bar(aes(x = Midpoint, y = Abundance, fill = Order), stat = "identity") +
+  geom_point(aes(x = Midpoint, y = Biomass*1000,group=DielPattern)) +
+  geom_line(aes(x = Midpoint, y = Biomass*1000, group = DielPattern)) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 4), limits = c(-disp1, disp1), labels=abs, sec.axis = sec_axis(~./1000, name = bquote('MOCNESS Biomass '(mgC/m^3)), scales::pretty_breaks(n = 4), labels = abs)) + #define the name of your second axis
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90)) +
+  #scale_fill_brewer(type = "qual", palette = "Set1") + #fill for each species is different, using a rcolorbrewer palette called "Set1"
+  scale_color_manual(values = "black", name = paste('Zooscan biomass', sep = '')) +# name = bquote(atop('Zooscan Biomass ', (mgC/m^2)))) +  #color for the zooscan biomass is black
+  coord_flip() + 
+  scale_x_reverse() + 
+  labs(x = "Depth (m)", y = "Relative abundance of 18S sequences") + 
+  geom_hline(yintercept = 0, linewidth = 0.2)+
+  facet_grid(~ID, scales="free_x")
+```
+
+Biomass depth plot by size fractions
+```{r}
+sample_data(mzg)$BinWidth = sample_data(mzg)$MaxDepth - sample_data(mzg)$MinDepth
+sample_data(mzg)$Midpoint = (sample_data(mzg)$BinWidth/2) + sample_data(mzg)$MinDepth
+
+#Combine size fraction biomass, prune for ease of plotting right now
+mzg %>% sample_data() %>% dplyr::group_by(Net,Tow,Station) %>% dplyr::summarise(Biomass=sum(condensedBiomass)) ->mdf1 #df of added biomass
+mzg %>% filter_taxa(function(x) sum(x) > 30 , TRUE) %>% psmelt() -> mdf
+
+mdf1 %>% right_join(mdf) ->mdf
+disp1 <- max(mdf$Abundance)*1.1 
+mdf$condensedBiomass[mdf$DielPattern == "Night"] <- mdf$condensedBiomass[mdf$DielPattern == "Night"]*-1 
+mdf$Biomass[mdf$DielPattern == "Night"] <- mdf$Biomass[mdf$DielPattern == "Night"]*-1
+
+p <- ggplot(mdf, aes(width = BinWidth*.9)) +
+  annotate("rect", xmin = -Inf, xmax = Inf, ymin =  -Inf, ymax = 0, fill = "grey60", alpha = 0.5) +
+  geom_bar(aes(x = Midpoint, y = condensedBiomass, fill = MinSize), stat = "identity") +
+  geom_point(aes(x = Midpoint, y = Biomass*1000,group=DielPattern)) +
+  geom_line(aes(x = Midpoint, y = Biomass*1000, group = DielPattern)) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 4), limits = c(-disp1, disp1), labels=abs, sec.axis = sec_axis(~./1000, name = bquote('MOCNESS Biomass '(mgC/m^3)), scales::pretty_breaks(n = 4), labels = abs)) + #define the name of your second axis
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90)) +
+  #scale_fill_brewer(type = "qual", palette = "Set1") + #fill for each species is different, using a rcolorbrewer palette called "Set1"
+  scale_color_manual(values = "black", name = paste('Zooscan biomass', sep = '')) +# name = bquote(atop('Zooscan Biomass ', (mgC/m^2)))) +  #color for the zooscan biomass is black
+  coord_flip() + 
+  scale_x_reverse() + 
+  labs(x = "Depth (m)")+ #, y = "Relative abundance of 18S sequences") + 
+  geom_hline(yintercept = 0, linewidth = 0.2)+
+  facet_grid(~ID, scales="free_x")
+```
+
+Depth Read Pots (~Steph) by Classes Subset
+```{r}
+sample_data(mzg)$BinWidth = sample_data(mzg)$MaxDepth - sample_data(mzg)$MinDepth
+sample_data(mzg)$Midpoint = (sample_data(mzg)$BinWidth/2) + sample_data(mzg)$MinDepth
+
+#Combine size fraction biomass, prune for ease of plotting right now
+mzg %>% sample_data() %>% dplyr::group_by(Net,Tow,Station) %>% dplyr::summarise(Biomass=sum(condensedBiomass)) ->mdf1 #df of added biomass
+
+mzg %>% subset_taxa(Family=="Doliolidae") %>% psmelt() -> mdf
+mdf1 %>% right_join(mdf) ->mdf
+disp1 <- max(mdf$Abundance)*1.1 
+mdf$Abundance[mdf$DielPattern == "Night"] <- mdf$Abundance[mdf$DielPattern == "Night"]*-1 
+mdf$Biomass[mdf$DielPattern == "Night"] <- mdf$Biomass[mdf$DielPattern == "Night"]*-1
+
+p <- ggplot(mdf, aes(width = BinWidth*.9)) +
+  annotate("rect", xmin = -Inf, xmax = Inf, ymin =  -Inf, ymax = 0, fill = "grey60", alpha = 0.5) +
+  geom_bar(aes(x = Midpoint, y = Abundance, fill = Family), stat = "identity") +
+  geom_point(aes(x = Midpoint, y = Biomass*1000,group=DielPattern)) +
+  geom_line(aes(x = Midpoint, y = Biomass*1000, group = DielPattern)) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 4), limits = c(-disp1, disp1), labels=abs, sec.axis = sec_axis(~./1000, name = bquote('MOCNESS Biomass '(mgC/m^3)), scales::pretty_breaks(n = 4), labels = abs)) + #define the name of your second axis
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90)) +
+  #scale_fill_brewer(type = "qual", palette = "Set1") + #fill for each species is different, using a rcolorbrewer palette called "Set1"
+  scale_color_manual(values = "black", name = paste('Zooscan biomass', sep = '')) +# name = bquote(atop('Zooscan Biomass ', (mgC/m^2)))) +  #color for the zooscan biomass is black
+  coord_flip() + 
+  scale_x_reverse() + 
+  labs(x = "Depth (m)", y = "Relative abundance of 18S sequences") + 
+  geom_hline(yintercept = 0, linewidth = 0.2)+
+  facet_grid(~ID, scales="free_x")
+```
+
+Core Taxa ~Order
+```{r}
+library(microbiome)
+library(RColorBrewer)
+
+mzg %>% microbiome::transform("compositional") -> ps.m3.rel
+ps.m3.rel <- microbiome::add_refseq(ps.m3.rel)
+ps.m3.rel.gen <- microbiome::aggregate_taxa(ps.m3.rel, "Order") #do by order and class
+# Check if any taxa with no genus classification. aggregate_taxa will merge all unclassified to Unknown
+any(taxa_names(ps.m3.rel.gen) == "Unknown")
+#remove unknown
+ps.m3.rel.gen <- subset_taxa(ps.m3.rel.gen, Order!="Unknown")
+#plot
+prevalences <- seq(.05, 1, .05)
+detections <- round(10^seq(log10(1e-5), log10(.2), length = 10), 3)
+detections <- round(10^seq(log10(1e-5), log10(.2), length = 10),5)
+p1 <- microbiome::plot_core(ps.m3.rel.gen, 
+                            plot.type = "heatmap", 
+                            colours = rev(brewer.pal(5, "RdBu")),
+                            prevalences = prevalences, 
+                            detections = detections, min.prevalence = .5) +
+  xlab("Detection Threshold (Relative Abundance (%))")+ ###BUT THIS ISNT COMPOSITIONAL 
+  theme_bw() + ylab("Order")
+p1
+```
+
+
+
+Section 3- Biological Communities
+
+Simprof Analysis?
+
+Depth Diversity Profile -Shannon
+```{r}
+#prepare data frame with div + env values
+alphadiv=tibble::rownames_to_column(estimate_richness(mzg))
+#merge with env data
+tibble::rownames_to_column(data.frame(sample_data(mzg))) %>% 
+  inner_join(alphadiv) ->alphadiv
+
+#plots
+ggplot(data=alphadiv,aes(x=MaxDepth,y=Shannon))+
+  geom_point(aes(color=MinSize))+
+  geom_smooth(aes(color=MinSize))+
+  #geom_line(aes(color=MinSize))+
+  facet_grid(~WaterType+DielPattern,scales="free_x")+
+  coord_flip() + 
+  scale_x_reverse()+
+  geom_vline(xintercept=200)#+
+facet_wrap(~DielPattern,scales="free_x")
+
+mzg %>% subset_samples(Cycle!="C1") %>% estimate_richness %>% tibble::rownames_to_column() -> alphadiv
+mzg %>% subset_samples(Cycle!="C1") %>% sample_data() %>% data.frame() %>% tibble::rownames_to_column() %>% inner_join(alphadiv) -> alphadiv
+ggplot(data=alphadiv,aes(x=MaxDepth,y=Shannon))+
+  geom_point(aes(color=MinSize))+
+  geom_smooth(aes(color=MinSize))+
+  facet_grid(~WaterType,scales="free_x")+
+  coord_flip() + 
+  scale_x_reverse()+
+  geom_vline(xintercept=200)
+
+ggplot(data=alphadiv,aes(x=MinSize,y=Shannon,color=MinSize))+
+  geom_boxplot(alpha=.5)+
+  geom_point()#+
+facet_grid(~DepthZone+DielPattern,scales="free_x")
+```
+
+STAT TESTS (ANOVA) FOR DVM and SIZE DIVERSITY PATTERNS
+```{r}
+mzg %>% subset_samples(WaterType!="Subtropical") %>% estimate_richness %>% tibble::rownames_to_column() -> alphadiv
+mzg %>% subset_samples(WaterType!="Subtropical") %>% sample_data() %>% data.frame() %>% tibble::rownames_to_column() %>% inner_join(alphadiv) -> alphadiv #subset_samples(WaterType=="Subantarctic") %>% subset_samples(Cycle!= "C1")
+
+#Stat Test ANOVA
+one.way <- aov(Shannon ~ DepthZone, data= alphadiv)
+summary(one.way)
+
+two.way <- aov(Shannon ~ DepthZone*DielPattern, data=alphadiv)
+summary(two.way)
+
+blocking <- aov(Shannon ~ DepthZone*DielPattern + MinSize, data=alphadiv )
+summary(blocking)
+
+#test between day/night epi/meso
+dvmone <-aov(Shannon ~ DepthZone, data=alphadiv)
+summary(dvmone)
+
+#test variance
+sample_data(mzg)$Size = sample_data(mzg)$MinSize
+dis <- vegdist(otu_table(mzg),method="bray")
+group=sample_data(mzg)$Size
+disp=betadisper(dis,group)
+anova(disp) 
+permutest(disp) 
+boxplot(disp)
+
+```
+
+Depth Diversity Steph Style
+```{r}
+sample_data(mzg)$BinWidth = sample_data(mzg)$MaxDepth - sample_data(mzg)$MinDepth
+sample_data(mzg)$Midpoint = (sample_data(mzg)$BinWidth/2) + sample_data(mzg)$MinDepth
+
+#NEW DF FOR SUBSETTING 
+mzg %>% subset_samples(WaterType=="Subantarctic") ->dfsa
+mzg %>% subset_samples(WaterType=="Subtropical") ->dfst
+
+tibble::rownames_to_column(estimate_richness(dfsa))-> alphadiv
+names(alphadiv)[names(alphadiv) == 'rowname'] <- 'Sample'
+
+dfsa %>% filter_taxa(function(x) sum(x) > 30 , TRUE) %>% psmelt() -> mdf
+
+mdf1 %>% right_join(mdf) %>% right_join(alphadiv)-> mdf
+disp1 <- max(mdf$Abundance)*1.1 
+mdf$Abundance[mdf$DielPattern == "Night"] <- mdf$Abundance[mdf$DielPattern == "Night"]*-1 
+mdf$Shannon[mdf$DielPattern == "Night"] <- mdf$Shannon[mdf$DielPattern == "Night"]*-1
+
+p <- ggplot(mdf, aes(width = BinWidth*.9)) +
+  annotate("rect", xmin = -Inf, xmax = Inf, ymin =  -Inf, ymax = 0, fill = "grey60", alpha = 0.5) +
+  geom_bar(aes(x = Midpoint, y = Abundance, fill = Phylum), stat = "identity") +
+  geom_point(aes(x = Midpoint, y = Shannon*10000,group=DielPattern)) +
+  geom_line(aes(x = Midpoint, y = Shannon*10000, linetype = DielPattern)) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 4), limits = c(-disp1, disp1), labels=abs, sec.axis = sec_axis(~./10000, name = bquote('Shannon Diversity'), scales::pretty_breaks(n = 4), labels = abs)) + #define the name of your second axis
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90)) +
+  #scale_fill_brewer(type = "qual", palette = "Set1") + #fill for each species is different, using a rcolorbrewer palette called "Set1"
+  scale_color_manual(values = "black", name = paste('Zooscan biomass', sep = '')) +# name = bquote(atop('Zooscan Biomass ', (mgC/m^2)))) +  #color for the zooscan biomass is black
+  coord_flip() + 
+  scale_x_reverse() + 
+  labs(x = "Depth (m)", y = "Relative abundance of 18S sequences") + 
+  geom_hline(yintercept = 0, linewidth = 0.2)+
+  facet_grid(~ID+Size, scales="free_x") #~ID
+```
+
+Ordination
+```{r}
+ord<- ordinate(mzg, "NMDS", "bray",k=3)
+
+plot_ordination(mzg, ord, type="taxa", color="Family", 
+                title="OTUs", label="Genus") + 
+  facet_wrap(~Class)+
+  guides(color=none)
+
+mzg %>% subset_taxa(Phylum!="Arthropoda") %>% ordinate("NMDS","bray",k=3) -> ord 
+mzg %>% subset_taxa(Phylum!="Arthropoda") %>% plot_ordination(ord, type="taxa", color="Family")+
+  facet_wrap(~Class)
+
+
+set.seed(1234)
+ord=ordinate(mzg, "NMDS", "bray",k=3,permutations=9999)
+plot_ordination(mzg,ord,type="samples",color="WaterType",shape="DepthZone")+
+  geom_point(aes(color=WaterType,size=3),alpha=.5)+ 
+  scale_colour_manual(values = c("#56B4E9", "#E69F00"))+
+  #stat_ellipse()+
+  stat_ellipse(aes(linetype=DepthZone))+
+  #stat_ellipse(type = "t", level=.95, linetype=2, geom="polygon", alpha=.3, aes(group = WaterType,fill=WaterType))+
+  theme(axis.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        panel.background = element_blank(), panel.border = element_rect(fill = NA, colour = "grey30"), 
+        axis.ticks = element_blank(), axis.text = element_blank(), legend.key = element_blank(), 
+        legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 9, colour = "grey30")) +
+  guides(color=guide_legend(title="Water Type"),fill="none",size="none")+
+  #scale_alpha_manual(guide = FALSE)+
+  theme_test(base_size = 16)+
+facet_grid(~MinSize)
+
+set.seed(1234)
+mzg %>% subset_samples(Cycle!="C1") -> test
+ord=ordinate(test, "NMDS", "bray",k=3,permutations=9999)
+plot_ordination(test,ord,type="samples",color="Cycle",shape="DepthZone")+
+  geom_point(aes(color=Cycle,size=3),alpha=.5)+ 
+  #scale_colour_manual(values = c("#56B4E9", "#E69F00"))+
+  stat_ellipse(aes(group=Cycle))+
+  #stat_ellipse(aes(linetype=DepthZone))+
+  #stat_ellipse(type = "t", level=.95, linetype=2, geom="polygon", alpha=.3, aes(group = WaterType,fill=WaterType))+
+  theme(axis.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        panel.background = element_blank(), panel.border = element_rect(fill = NA, colour = "grey30"), 
+        axis.ticks = element_blank(), axis.text = element_blank(), legend.key = element_blank(), 
+        legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 9, colour = "grey30")) +
+  #guides(color=guide_legend(title="Water Type"),fill="none",size="none")+
+  #scale_alpha_manual(guide = FALSE)+
+  theme_test(base_size = 16)#+
+facet_grid(~MinSize)
+
+```
+
+Pairwise Adonis Stat Testing NMDS
+```{r}
+dis <- vegdist(otu_table(mzg),method="bray")
+group=sample_data(mzg)$WaterType
+disp=betadisper(dis,group)
+anova(disp) #permutest(disp) #; boxplot(disp)
+#adonis
+factors=sample_data(subset_samples(mzg))$WaterType
+pairwiseAdonis::pairwise.adonis(otu_table(mzg),sample_data(mzg)$WaterType, sim.function="vegdist",sim.method="bray")
+
+#By Depth and water type
+sample_data(mzg)$WaterDepth = paste0(sample_data(mzg)$WaterType,"_", sample_data(mzg)$DepthZone)
+dis <- vegdist(otu_table(mzg),method="bray")
+group=sample_data(mzg)$WaterDepth
+disp=betadisper(dis,group)
+anova(disp)
+#adonis
+factors=sample_data(subset_samples(mzg))$WaterDepth
+pairwiseAdonis::pairwise.adonis(otu_table(mzg),sample_data(mzg)$WaterDepth, sim.function="vegdist",sim.method="bray")
+
+#separate by day/night
+subset_samples(mzg, DielPattern!="Day") -> df
+sample_data(df)$WaterDepth = paste0(sample_data(df)$WaterType,"_", sample_data(df)$DepthZone)
+dis <- vegdist(otu_table(df),method="bray")
+group=sample_data(df)$WaterDepth
+disp=betadisper(dis,group)
+anova(disp)
+#adonis
+factors=sample_data(subset_samples(df))$WaterDepth
+pairwiseAdonis::pairwise.adonis(otu_table(df),sample_data(df)$WaterDepth, sim.function="vegdist",sim.method="bray")
+```
+
+
+
+
+Section 4- Taxonomic Drivers
+
+Deseq2 - just copepods
+```{r}
+library(DESeq2)
+
+mzg %>% subset_taxa(Class=="Hexanauplia") %>% filter_taxa(function(x) sum(x > 0) > 1, TRUE)->deseqps
+otu_table(deseqps)=otu_table(deseqps)+1
+diagdds = phyloseq_to_deseq2(deseqps, ~ WaterType)
+diagdds = DESeq(diagdds, test="Wald", fitType="mean")
+res = results(diagdds, cooksCutoff = FALSE)
+alpha = 0.01
+sigtab = res[which(res$padj < alpha), ]
+sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(deseqps)[rownames(sigtab), ], "matrix"))
+
+#Add watermass so can plot
+sigtab$WaterType=0
+ncol(sigtab)->WaterType
+logchange=sigtab$log2FoldChange
+for(i in 1:length(logchange))
+{
+  if(logchange[i] >=0)
+  {
+    sigtab[i,WaterType]="Subtropical"
+    #print("shrek")
+  } else {
+    sigtab[i,WaterType]="Subantarctic"
+  }
+}
+theme_set(theme_bw())
+scale_fill_discrete <- function(palname = "Set1", ...) {
+  scale_fill_brewer(palette = palname, ...)
+}
+#summary of comparison, shows which group +/-
+summary(res)
+res
+
+#plot 
+x = tapply(sigtab$log2FoldChange, sigtab$Class, function(x) max(x))
+x = sort(x, TRUE)
+sigtab$Order = factor(as.character(sigtab$Class), levels=names(x))
+# Genus order -- tried family
+x = tapply(sigtab$log2FoldChange, sigtab$Family, function(x) max(x))
+x = sort(x, TRUE)
+sigtab$Genus = factor(as.character(sigtab$Family), levels=names(x))
+ggplot(sigtab, aes(x=Family, y=log2FoldChange, color=Family)) + geom_point(size=6,alpha=.8) + 
+  theme( #axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5
+    axis.text.x=element_blank(),  #remove y axis labels
+    axis.ticks.x=element_blank(),
+    #plot.title = element_text(size = 12, face = "bold"),
+    legend.title=element_text(size=10), 
+    legend.text=element_text(size=6))+
+  facet_wrap(~Class,scales="free_x")+
+  geom_hline(yintercept=0)
+```
+
+Deseq2 all species
+```{r}
+library(DESeq2)
+
+mzg %>% filter_taxa(function(x) sum(x > 0) > 1, TRUE)->deseqps
+otu_table(deseqps)=otu_table(deseqps)+1
+diagdds = phyloseq_to_deseq2(deseqps, ~ WaterType)
+diagdds = DESeq(diagdds, test="Wald", fitType="mean")
+res = results(diagdds, cooksCutoff = FALSE)
+alpha = 0.01
+sigtab = res[which(res$padj < alpha), ]
+sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(deseqps)[rownames(sigtab), ], "matrix"))
+
+#Add watermass so can plot
+sigtab$WaterType=0
+ncol(sigtab)->WaterType
+logchange=sigtab$log2FoldChange
+for(i in 1:length(logchange))
+{
+  if(logchange[i] >=0)
+  {
+    sigtab[i,WaterType]="Subtropical"
+    #print("shrek")
+  } else {
+    sigtab[i,WaterType]="Subantarctic"
+  }
+}
+theme_set(theme_bw())
+scale_fill_discrete <- function(palname = "Set1", ...) {
+  scale_fill_brewer(palette = palname, ...)
+}
+#summary of comparison, shows which group +/-
+summary(res)
+res
+
+#plot 
+x = tapply(sigtab$log2FoldChange, sigtab$Class, function(x) max(x))
+x = sort(x, TRUE)
+sigtab$Order = factor(as.character(sigtab$Class), levels=names(x))
+# Genus order -- tried family
+x = tapply(sigtab$log2FoldChange, sigtab$Family, function(x) max(x))
+x = sort(x, TRUE)
+sigtab$Genus = factor(as.character(sigtab$Family), levels=names(x))
+ggplot(sigtab, aes(x=Family, y=log2FoldChange, color=Family)) + geom_point(size=6,alpha=.8) + 
+  theme( #axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5
+    axis.text.x=element_blank(),  #remove y axis labels
+    axis.ticks.x=element_blank(),
+    #plot.title = element_text(size = 12, face = "bold"),
+    legend.title=element_text(size=10), 
+    legend.text=element_text(size=6))+
+  facet_wrap(~Class,scales="free_x")+
+  geom_hline(yintercept=0)
+```
+
+Indicator Species
+Multipatt exploration
+```{r}
+specps=tax_glom(mzg,"Species")
+#specps=subset_taxa(specps,Species!="Species")
+specps %>% otu_table() %>%  t() %>% data.frame() %>% rownames_to_column() ->hash #152
+specps %>% tax_table() %>% data.frame() %>%rownames_to_column() -> names #152
+inner_join(names,hash) ->named
+named$superspec=paste0(named$Family,"_",named$Species)
+named %>% column_to_rownames(var="superspec") -> named #dataframe with species, hash, taxonomy, then abundances (columns include sample names)
+named[,-c(1:11)] %>% t() -> nameps
+#reformat sample data to match order in species table to get real assocations
+sample_data(mzg) %>% data.frame() %>% rownames_to_column -> df1
+nameps %>% data.frame() %>% rownames_to_column() %>% full_join(df1) -> df2
+#remove missing species sample 
+df2 <- df2[-nrow(df2),] 	#C1D4_T4_N5_02
+
+#run ~ water types
+groups <- df2$WaterType
+indval <- multipatt(nameps, groups, control = how(nperm=999))
+summary(indval, indvalcomp=TRUE)
+
+#presence/absence association ~ water type
+namepspa <- ifelse(nameps>0,1,0)
+phi <- multipatt(namepspa, groups, func = "r.g", control = how(nperm=999))
+summary(phi)
+
+#species combinations ~WaterType
+namepscomb <- combinespecies(nameps, max.order = 2)$XC
+dim(namepscomb) #195 x 11711
+indvalspcomb <- multipatt(namepscomb, groups, duleg = TRUE, 
+                          control = how(nperm=999))
+summary(indvalspcomb, alpha=.01) #, indvalcomp = TRUE)
+
+#regular ~type + depth
+df2$WaterDepth = paste0(df2$WaterType, "_", df2$DepthZone)
+groups <- df2$WaterDepth
+indval <- multipatt(nameps, groups, control = how(nperm=999))
+summary(indval, alpha = .9)
+
+#pa association ~ type + depth
+namepspa <- ifelse(nameps>0,1,0)
+groups <- df2$WaterDepth
+phi <- multipatt(namepspa, groups, func = "r.g", control = how(nperm=999))
+summary(phi)
+```
+
+
+
+
+Section 5: Environmental Drivers
+
+Random Forest ~ Density
+```{r}
+library(randomForest)
+path="C:/Users/budro/OneDrive/Desktop/SalpPOOP Project/Phyloseq/ML"
+knitr::opts_knit$set(root.dir = path)
+
+#prepare data %>% subset_samples(MinSize=="1") %>% subset_samples(WaterType!="Subantarctic")
+mzg %>% subset_samples(MinSize!="1") %>% filter_taxa(function(x) sum(x>0) > 1,prune=TRUE) %>% transform_sample_counts(function(OTU) OTU/sum(OTU) )->rfps
+rfps %>% otu_table() %>% data.frame() -> rf_data1
+b = rf_data1[, which(colSums(rf_data1) != 0)] #a
+Density = sample_data(rfps)[,"Density"]
+rf_data = cbind(Density,b)
+write.csv(rf_data, paste0("RF_input","_psmzg",".csv"))
+
+#partition 70/30
+set.seed(123)
+ind <- sample(2, nrow(rf_data), replace = TRUE, prob = c(0.7, 0.3))
+train <- rf_data[ind==1,]
+test <- rf_data[ind==2,]
+
+#run
+set.seed(4444)
+rf <- randomForest(Density~., data=train, #here Temp is the dependent
+                   ntree = 200, #number of trees will depend on the error plot
+                   importance = TRUE, proximity = TRUE)
+rf
+plot(rf)
+p1 <- predict(rf, train)
+write.csv(p1,paste0("training","_psmzg",".csv"))
+
+
+#Validate and find prediction accuracies from training data
+#Step 1 compare actual v predicted
+data <- read.csv(paste0("RF_input","_psmzg",".csv"), header=TRUE) #read in initial 70% training data
+df2 <- data %>%  select(1, Density)
+colnames(df2) <- c("SampleID", "Actual_value")
+#for training accuracy
+tr <- read.csv(paste0("training","_psmzg",".csv"))
+#Changing the column names 
+colnames(tr) <- c("SampleID", "Predicted_value")
+total1 <- merge(tr,df2,by="SampleID")
+write.csv(total1,paste0("predicted_vs_actual_in_training","_psmzg",".csv"), row.names = FALSE) #saving the output of Step 1 for further comparison and analyses
+
+# Step 2: plotting predicted vs actual value
+ggplot(total1, aes(y=Actual_value, x=Predicted_value))+
+  geom_point()+
+  geom_smooth(method=lm)+
+  #ggtitle(paste0("Model RM",x,y,z," training plot")) +
+  xlab("Predicted value") + ylab("Actual value")
+
+#Step 3: running linear model for training
+fit <- lm(Actual_value ~ Predicted_value, data = total1)
+summary(fit)
+
+
+#Validate and find prediction accuracies from prediction data (30%)
+p2 <- predict(rf, test) #predict from training model (70%) to validation set (30%)
+write.csv(p2,paste0("validation","_psmzg",".csv")) #save as external file since trying to data_frame it does't save sampleid
+
+#Step 1: comparison of actual v predicted
+pr <- read.csv(paste0("validation","_psmzg",".csv"))
+#Changing the column names 
+colnames(pr) <- c("SampleID", "Predicted_value")
+total2 <- merge(pr,df2,by="SampleID")
+write.csv(total2,paste0("predicted_vs_actual_in_validation","_psmzg",".csv"), row.names = FALSE) #saving the output of Step 1 for further comparison and analyses
+
+#Step2: plotting predicted vs actual value
+ggplot(total2, aes(y=Actual_value, x=Predicted_value)) +  geom_point() + geom_smooth(method=lm) +
+  #ggtitle(paste0("Model RM",x,y,z," validation plot")) +
+  xlab("Predicted value") + ylab("Actual value")+
+  theme_light()
+
+#Step 3: running linear model for validation
+fitsmall <- lm(Actual_value ~ Predicted_value, data = total2)
+summary(fitsmall)
+
+#fit1=full model;  fit2=02; fit5=05; fit01=1; fitepi ; fitmeso; fitsa; fitst
+```
+Aikake Comparison for RF models
+```{r}
+library(AICcmodavg)
+#define list of models
+models <- list(fit1, fit02,fit05, fit01, fitepi, fitmeso)
+#specify model names
+mod.names <- c('all', '02', '05', '1','epi', 'meso')
+#calculate AIC of each model
+aictab(cand.set = models, modnames = mod.names)
+
+models <- list(fitbig, fitsmall)
+mod.names <- c('051', '0205')
+aictab(cand.set=models,modnames=mod.names)
+```
+
+Random Forest ~Other Variables within sizes
+```{r}
+library(randomForest)
+path="C:/Users/budro/OneDrive/Desktop/SalpPOOP Project/Phyloseq/ML"
+knitr::opts_knit$set(root.dir = path)
+
+#prepare data %>% subset_samples(MinSize=="1") %>% subset_samples(WaterType!="Subantarctic")
+mzg %>% subset_samples(MinSize=="05") %>% filter_taxa(function(x) sum(x>0) > 1,prune=TRUE) %>% transform_sample_counts(function(OTU) OTU/sum(OTU) )->rfps
+rfps %>% otu_table() %>% data.frame() -> rf_data1
+b = rf_data1[, which(colSums(rf_data1) != 0)] #a
+Oxygen = sample_data(rfps)[,"Oxygen"] #have to change
+rf_data = cbind(Oxygen,b)
+write.csv(rf_data, paste0("RF_input","_psmzg",".csv"))
+
+#partition 70/30
+set.seed(123)
+ind <- sample(2, nrow(rf_data), replace = TRUE, prob = c(0.7, 0.3))
+train <- rf_data[ind==1,]
+test <- rf_data[ind==2,]
+
+#run
+set.seed(4444)
+rf <- randomForest(Oxygen~., data=train, #here Temp is the dependent
+                   ntree = 200, #number of trees will depend on the error plot
+                   importance = TRUE, proximity = TRUE)
+rf
+plot(rf)
+p1 <- predict(rf, train)
+write.csv(p1,paste0("training","_psmzg",".csv"))
+
+
+#Validate and find prediction accuracies from training data
+#Step 1 compare actual v predicted
+data <- read.csv(paste0("RF_input","_psmzg",".csv"), header=TRUE) #read in initial 70% training data
+df2 <- data %>%  select(1, Oxygen)
+colnames(df2) <- c("SampleID", "Actual_value")
+#for training accuracy
+tr <- read.csv(paste0("training","_psmzg",".csv"))
+#Changing the column names 
+colnames(tr) <- c("SampleID", "Predicted_value")
+total1 <- merge(tr,df2,by="SampleID")
+write.csv(total1,paste0("predicted_vs_actual_in_training","_psmzg",".csv"), row.names = FALSE) #saving the output of Step 1 for further comparison and analyses
+
+# Step 2: plotting predicted vs actual value
+ggplot(total1, aes(y=Actual_value, x=Predicted_value))+
+  geom_point()+
+  geom_smooth(method=lm)+
+  #ggtitle(paste0("Model RM",x,y,z," training plot")) +
+  xlab("Predicted value") + ylab("Actual value")
+
+#Step 3: running linear model for training
+fit <- lm(Actual_value ~ Predicted_value, data = total1)
+summary(fit)
+
+
+#Validate and find prediction accuracies from prediction data (30%)
+p2 <- predict(rf, test) #predict from training model (70%) to validation set (30%)
+write.csv(p2,paste0("validation","_psmzg",".csv")) #save as external file since trying to data_frame it does't save sampleid
+
+#Step 1: comparison of actual v predicted
+pr <- read.csv(paste0("validation","_psmzg",".csv"))
+#Changing the column names 
+colnames(pr) <- c("SampleID", "Predicted_value")
+total2 <- merge(pr,df2,by="SampleID")
+write.csv(total2,paste0("predicted_vs_actual_in_validation","_psmzg",".csv"), row.names = FALSE) #saving the output of Step 1 for further comparison and analyses
+
+#Step2: plotting predicted vs actual value
+ggplot(total2, aes(y=Actual_value, x=Predicted_value)) +  geom_point() + geom_smooth(method=lm) +
+  #ggtitle(paste0("Model RM",x,y,z," validation plot")) +
+  xlab("Predicted value") + ylab("Actual value")+
+  theme_light()
+
+#Step 3: running linear model for validation
+fit05O <- lm(Actual_value ~ Predicted_value, data = total2)
+summary(fit05O)
+```
+
+AICc Test
+```{r}
+library(AICcmodavg)
+#define list of models
+models <- list(fitO, fit02O,fit05O, fit1O)
+#specify model names
+mod.names <- c('all', '02', '05', '1')
+#calculate AIC of each model
+aictab(cand.set = models, modnames = mod.names)
+
+```
+
+
+RF ~ Other variables within epi?
+```{r}
+
+```
+
+
+Bioenv-total
+```{r}
+otu_table(mzg)[, which(colSums(otu_table(mzg)) != 0)] -> otudata
+envdata=sample_data(mzg)[,c("MaxDepth","Density","Latitude_Start","Longitude_Start","PotentialTemperature","Oxygen","Salinity","Transmissivity","Fluorescence","condensedBiomass")] #extract continuous env variables I want to test
+#envdata=sample_data(mzg)[,c("MinSize","Net","Tow","Station","FinalizedWeight","Site","MinDepth","Cycle.Day","BiomassmgCm3","ID")]
+#envdata=sample_data(mzg) %>% data.frame() %>% select(-"MinSize",-"Net",-"Tow",-"Station",-"FinalizedWeight",-"Site",-"MinDepth",-"Cycle.Day",-"BiomassmgCm3",-"ID")
+bioenv(comm=(otudata),env=envdata,method="spearman",index="bray",upto=ncol(envdata),trace=FALSE,partial=NULL,metric="euclidean") ->bioenvresult #run bioenv
+bioenvtab=bioenvdist(bioenvresult,which="best") #select the best model for mantel test
+mant= mantel(vegdist((otudata),method="bray"),bioenvtab,method="spearman",
+             permutations=9999,na.rm=TRUE)
+ord=ordinate(mzg,"NMDS","bray",k=3)
+en=envfit(ord,sample_data(mzg),permutations=999,na.rm=TRUE)
+#endata=endata[,c("MaxDepth","Latitude_Start","PotentialTemperature","Salinity","Density","Oxygen")] #same variables chosen by bioenv
+#en=envfit(ord,endata,permutations=999,na.rm=TRUE)
+data.scores = as.data.frame(ord$points)
+data.scores$WaterType = sample_data(psmzg)$WaterType
+en_coord_cont = as.data.frame(scores(en, "vectors")) * ordiArrowMul(en)
+rownames(en_coord_cont)=c("Depth","Density","Latitude","Temperature","Oxygen")
+en_coord_cat = as.data.frame(scores(en, "factors")) * ordiArrowMul(en)
+ggplot(data = data.scores, aes(x = MDS1, y = MDS2)) + 
+  geom_point(data = data.scores, aes(colour = WaterType), size = 3, alpha = 0.5)+  
+  scale_colour_manual(values = c("steelblue","orange"))+   
+  geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
+               data = en_coord_cont, linewidth =1, alpha = 0.5, colour = "grey30")+ 
+  geom_text(data = en_coord_cont, aes(x = NMDS1, y = NMDS2), colour = "grey30", size=3, fontface = "bold", label = row.names(en_coord_cont)) + 
+  theme(axis.title = element_text(size =10, face = "bold", colour = "grey30"), 
+        panel.background = element_blank(), panel.border = element_rect(fill = NA, colour = "grey30"), 
+        axis.ticks = element_blank(), axis.text = element_blank(), legend.key = element_blank(), 
+        legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 9, colour = "grey30")) + 
+  labs(colour = "WaterType")
+```
+
+
+Bioenv- separated by size or other vars
+```{r}
+#mzg %>% subset_samples(MinSize=="1") -> mzgtest
+#mzg %>% subset_samples(WaterType!="Subantarctic") -> mzgtest
+mzg %>% subset_samples(DepthZone!="Epipelagic") -> mzgtest
+otu_table(mzgtest)[, which(colSums(otu_table(mzgtest)) != 0)] -> otudata
+sample_data(mzgtest)[,c("MaxDepth","Density","Latitude_Start","Longitude_Start","PotentialTemperature","Oxygen","Salinity","Transmissivity","Fluorescence","condensedBiomass")] -> envdata
+bioenv(comm=(otudata),env=envdata,method="spearman",index="bray",upto=ncol(envdata),trace=FALSE,partial=NULL,metric="euclidean") ->bioenvresult #run bioenv
+bioenvtab=bioenvdist(bioenvresult,which="best") #select the best model for mantel test
+mant= mantel(vegdist((otudata),method="bray"),bioenvtab,method="spearman",
+             permutations=9999,na.rm=TRUE)
+ord=ordinate(mzgtest,"NMDS","bray",k=3)
+en=envfit(ord,sample_data(mzgtest),permutations=999,na.rm=TRUE)
+#endata=endata[,c("MaxDepth","Latitude_Start","PotentialTemperature","Salinity","Density","Oxygen")] #same variables chosen by bioenv
+#en=envfit(ord,endata,permutations=999,na.rm=TRUE)
+data.scores = as.data.frame(ord$points)
+data.scores$WaterType = sample_data(mzgtest)$WaterType
+data.scores$MinSize = sample_data(mzgtest)$MinSize
+en_coord_cont = as.data.frame(scores(en, "vectors")) * ordiArrowMul(en)
+#rownames(en_coord_cont)=c("Depth","Density","Latitude","Temperature","Oxygen")
+en_coord_cat = as.data.frame(scores(en, "factors")) * ordiArrowMul(en)
+ggplot(data = data.scores, aes(x = MDS1, y = MDS2)) + 
+  geom_point(data = data.scores, aes(colour = MinSize), size = 3, alpha = 0.5)+  
+  #scale_colour_manual(values = c("steelblue","orange"))+   
+  geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
+               data = en_coord_cont, linewidth =1, alpha = 0.5, colour = "grey30")+ 
+  geom_text(data = en_coord_cont, aes(x = NMDS1, y = NMDS2), colour = "grey30", size=3, fontface = "bold", label = row.names(en_coord_cont)) + 
+  theme(axis.title = element_text(size =10, face = "bold", colour = "grey30"), 
+        panel.background = element_blank(), panel.border = element_rect(fill = NA, colour = "grey30"), 
+        axis.ticks = element_blank(), axis.text = element_blank(), legend.key = element_blank(), 
+        legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 9, colour = "grey30")) #+ 
+  labs(colour = "WaterType")
+```
+
+
+
+
+
+
+Supplemental Figures - Composition
+
+
+Top ASVs SA/ST
+```{r}
+subset_samples(mzg, ID!="SA1"&WaterType!="Subantarctic") ->cycmzg
+myTaxa = names(sort(taxa_sums(cycmzg), decreasing = TRUE) [1:20])
+prune_taxa(myTaxa,cycmzg) %>% psmelt() -> cycmzg
+cycmzg$asvID = paste0(cycmzg$Family, "_", cycmzg$Genus, "_", cycmzg$Species)
+cycmzg %>% dplyr::group_by(OTU) %>%
+  dplyr::summarise(TotalAbund=sum(Abundance)) -> mdf_counts
+cycmzg %>% dplyr::group_by(OTU) %>%
+  dplyr::summarise(Order=Order) %>% right_join(mdf_counts) %>% unique() -> mdf_counts
+cycmzg %>% dplyr::group_by(OTU) %>%
+  dplyr::summarise(Genus=Genus) %>% right_join(mdf_counts) %>% unique() -> mdf_counts
+cycmzg %>% dplyr::group_by(OTU) %>%
+  dplyr::summarise(Species=Species) %>% right_join(mdf_counts) %>% unique() -> mdf_counts
+cycmzg %>% dplyr::group_by(OTU) %>%
+  dplyr::summarise(Family=Family) %>% right_join(mdf_counts) %>% unique()-> mdf_counts
+
+nb.cols <- 20
+mycolors <- colorRampPalette(brewer.pal(8, "Set2"))(nb.cols)
+# Create a ggplot with 18 colors 
+# Use scale_fill_manual
+
+ggplot(data=mdf_counts,aes(x=Family,y=TotalAbund,color=Genus,fill=Genus))+
+  #geom_point()+
+  theme_bw()+
+  theme(axis.text.x=element_text(angle = 90, vjust = 0.5))+
+  geom_bar(stat="identity",colour="black")+
+  scale_fill_manual(values = mycolors)+
+  labs(x="Genus",y="ASV Read Abundance",title = "Read Abundance of Top 20 ASVs", subtitle = "SubtropicalWaters")
+
+
+```
+
+
+
+Core Taxa Tables
+```{r}
+library(microbiome)
+library(RColorBrewer)
+
+mzg %>% subset_samples(MinSize=="1") %>% microbiome::transform("compositional") -> ps.m3.rel
+ps.m3.rel <- microbiome::add_refseq(ps.m3.rel)
+#find core taxa members
+core.taxa.standard <- microbiome::core_members(ps.m3.rel, detection = 0.0001, prevalence = 70/100)
+core.taxa.standard
+##ful ps object of core
+pseq.core <- microbiome::core(ps.m3.rel, detection = 0.0001, prevalence = .7)
+core.taxa <- microbiome::taxa(pseq.core)
+class(core.taxa)
+tax.mat <- tax_table(pseq.core)
+tax.df <- as.data.frame(tax.mat)
+tax.df$OTU <- rownames(tax.df)
+core.taxa.class <- dplyr::filter(tax.df, rownames(tax.df) %in% core.taxa)
+core.taxa.class
+knitr::kable(core.taxa.class)###PLOT
+```
+
+Section - Biological COmmunities
+
+Depth Biomass Profiles ~Steph
+```{r}
+#add in columns, interval width + depth midpoints to physeq object
+sample_data(mzg)$BinWidth = sample_data(mzg)$MaxDepth - sample_data(mzg)$MinDepth
+sample_data(mzg)$Midpoint = (sample_data(mzg)$BinWidth/2) + sample_data(mzg)$MinDepth
+
+#Combine size fraction biomass, prune for ease of plotting right now
+mzg %>% sample_data() %>% dplyr::group_by(Net,Tow,Station) %>% dplyr::summarise(Biomass=sum(condensedBiomass)) ->mdf1 #df of added biomass
+
+mdf1 %>% right_join(psmelt(mzg)) ->mdf
+disp1 <- max(mdf$Abundance)*1.1 
+mdf$Abundance[mdf$DielPattern == "Night"] <- mdf$Abundance[mdf$DielPattern == "Night"]*-1 
+mdf$Biomass[mdf$DielPattern == "Night"] <- mdf$Biomass[mdf$DielPattern == "Night"]*-1
+
+p <- ggplot(mdf, aes(width = BinWidth*.9)) +
+  annotate("rect", xmin = -Inf, xmax = Inf, ymin =  -Inf, ymax = 0, fill = "grey60", alpha = 0.5) +
+  geom_bar(aes(x = Midpoint, y = Abundance, fill = Phylum), stat = "identity") +
+  geom_point(aes(x = Midpoint, y = Biomass*1000,group=DielPattern)) +
+  geom_line(aes(x = Midpoint, y = Biomass*1000, group = DielPattern)) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 4), limits = c(-disp1, disp1), labels=abs, sec.axis = sec_axis(~./1000, name = bquote('MOCNESS Biomass '(mgC/m^3)), scales::pretty_breaks(n = 4), labels = abs)) + #define the name of your second axis
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90)) +
+  #scale_fill_brewer(type = "qual", palette = "Set1") + #fill for each species is different, using a rcolorbrewer palette called "Set1"
+  scale_color_manual(values = "black", name = paste('Zooscan biomass', sep = '')) +# name = bquote(atop('Zooscan Biomass ', (mgC/m^2)))) +  #color for the zooscan biomass is black
+  coord_flip() + 
+  scale_x_reverse() + 
+  labs(x = "Depth (m)", y = "Relative abundance of 18S sequences") + 
+  geom_hline(yintercept = 0, linewidth = 0.2)+
+  facet_grid(~ID, scales="free_x")
+```
+
+
+Diversity Depth Profile 
+```{r}
+#prepare data frame with div + env values
+alphadiv=tibble::rownames_to_column(estimate_richness(mzg))
+#merge with env data
+tibble::rownames_to_column(data.frame(sample_data(mzg))) %>% 
+  inner_join(alphadiv) ->alphadiv
+
+#plots
+ggplot(data=alphadiv,aes(x=MaxDepth,y=Chao1))+
+  geom_point(aes(color=MinSize))+
+  geom_smooth(aes(color=MinSize))+
+  facet_grid(~WaterType+DielPattern,scales="free_x")+
+  coord_flip() + 
+  scale_x_reverse()+
+  geom_vline(xintercept=200)
+
+ggplot(data=alphadiv,aes(x=MaxDepth,y=Chao1))+
+  geom_point(aes(color=MinSize))+
+  geom_smooth(aes(color=MinSize))+
+  facet_grid(~DielPattern,scales="free_x")+
+  coord_flip() + 
+  scale_x_reverse()+
+  geom_vline(xintercept=200)
+
+ggplot(data=alphadiv,aes(x=MinSize,y=Chao1,color=MinSize))+
+  geom_boxplot(alpha=.5)+
+  geom_point()#+
+facet_grid(~DepthZone+DielPattern,scales="free_x")
+
+```
+
+
+Depth Day Night
+
+
+Deseq2 by salp
+```{r}
+library(DESeq2)
+
+mzg %>% filter_taxa(function(x) sum(x > 0) > 1, TRUE)->deseqps
+otu_table(deseqps)=otu_table(deseqps)+1
+diagdds = phyloseq_to_deseq2(deseqps, ~ SalpType)
+diagdds = DESeq(diagdds, test="Wald", fitType="mean")
+res = results(diagdds, cooksCutoff = FALSE)
+alpha = 0.01
+sigtab = res[which(res$padj < alpha), ]
+sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(deseqps)[rownames(sigtab), ], "matrix"))
+
+#Add watermass so can plot
+sigtab$WaterType=0
+ncol(sigtab)->WaterType
+logchange=sigtab$log2FoldChange
+for(i in 1:length(logchange))
+{
+  if(logchange[i] >=0)
+  {
+    sigtab[i,WaterType]="Subtropical"
+    #print("shrek")
+  } else {
+    sigtab[i,WaterType]="Subantarctic"
+  }
+}
+theme_set(theme_bw())
+scale_fill_discrete <- function(palname = "Set1", ...) {
+  scale_fill_brewer(palette = palname, ...)
+}
+#summary of comparison, shows which group +/-
+summary(res)
+res
+
+#plot 
+x = tapply(sigtab$log2FoldChange, sigtab$Class, function(x) max(x))
+x = sort(x, TRUE)
+sigtab$Order = factor(as.character(sigtab$Class), levels=names(x))
+# Genus order -- tried family
+x = tapply(sigtab$log2FoldChange, sigtab$Family, function(x) max(x))
+x = sort(x, TRUE)
+sigtab$Genus = factor(as.character(sigtab$Family), levels=names(x))
+ggplot(sigtab, aes(x=Family, y=log2FoldChange, color=Family)) + geom_point(size=6,alpha=.8) + 
+  theme( #axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5
+    axis.text.x=element_blank(),  #remove y axis labels
+    axis.ticks.x=element_blank(),
+    #plot.title = element_text(size = 12, face = "bold"),
+    legend.title=element_text(size=10), 
+    legend.text=element_text(size=6))+
+  facet_wrap(~Class,scales="free_x")+
+  geom_hline(yintercept=0)
+```
+
+
+
+
+
+
+
+sCRAP
+#plot --Version #2 (both colors)
+ggbiplot(pca, obs.scale = 1, var.scale = 1) +
+  geom_point(aes(color=WaterType,shape=DepthZone,size=2,alpha=.5))+
+  stat_ellipse(geom="polygon",aes(group = factor(WaterType), fill=factor(WaterType),alpha=.35), linetype=1) +
+  stat_ellipse(geom="polygon",aes(group = factor(DepthZone), fill=factor(DepthZone), alpha=.25), linetype=2) +
+  #theme(legend.direction = 'horizontal', legend.position = 'top')+
+  theme_light()+ #either theme_light or regular theme -- unsure of positioning legend
+  guides(fill="none",size="none",alpha="none")
+  
+RF MrMR (feature selection)
+```{r
+#install.packages("mRMRe")
+library(mRMRe)
+
+dd <- mRMR.data(data=data.frame(otu_table(mzg)))
+mRMR.classic(data=dd, target_indices=ncol(otu_table(mzg)),feature_count=20) ->mrmrzg
+mrmrzg@filters %>% unlist() -> filtlist
+otu_table(mzg)[,filtlist] ->filteredmzg
+```
+
+
+Network Analysis
+```{r
+#remotes::install_github("taowenmicro/ggClusterNet",force=TRUE)
+library(ggClusterNet)
+
+waternetwork <- list()
+
+```
+
+
+RF with binary
+```{r
+library(randomForest)
+library(ggplot2)
+library(dplyr)
+library(phyloseq)
+path="C:/Users/budro/OneDrive/Desktop/SalpPOOP Project/Phyloseq/ML"
+knitr::opts_knit$set(root.dir = path)
+
+filterfun1 = function(x){
+  x[x > 1] <- 1
+  return(x)
+}
+#prepare data %>% subset_samples(MinSize=="1")
+mzg %>%  filter_taxa(function(x) sum(x>0) > 1,prune=TRUE) %>% transform_sample_counts(filterfun1)->rfps
+rfps %>% otu_table() %>% data.frame() -> rf_data1
+b = rf_data1[, which(colSums(rf_data1) != 0)] #a
+Density = sample_data(rfps)[,"Density"]
+rf_data = cbind(Density,b)
+write.csv(rf_data, paste0("RF_input","_psmzg",".csv"))
+
+#partition 70/30
+set.seed(123)
+ind <- sample(2, nrow(rf_data), replace = TRUE, prob = c(0.7, 0.3))
+train <- rf_data[ind==1,]
+test <- rf_data[ind==2,]
+
+#run
+set.seed(4444)
+rf <- randomForest(Density~., data=train, #here Temp is the dependent
+                   ntree = 200, #number of trees will depend on the error plot
+                   importance = TRUE, proximity = TRUE)#, #calculates the proximity measure among the rows, #mtry = 600)
+rf
+plot(rf)
+p1 <- predict(rf, train)
+write.csv(p1,paste0("training","_psmzg",".csv"))
+
+
+#Validate and find prediction accuracies from training data
+#Step 1 compare actual v predicted
+data <- read.csv(paste0("RF_input","_psmzg",".csv"), header=TRUE) #read in initial 70% training data
+df2 <- data %>%  select(1, Temperature)
+colnames(df2) <- c("SampleID", "Actual_value")
+#for training accuracy
+tr <- read.csv(paste0("training","_psmzg",".csv"))
+#Changing the column names 
+colnames(tr) <- c("SampleID", "Predicted_value")
+total1 <- merge(tr,df2,by="SampleID")
+write.csv(total1,paste0("predicted_vs_actual_in_training","_psmzg",".csv"), row.names = FALSE) #saving the output of Step 1 for further comparison and analyses
+
+# Step 2: plotting predicted vs actual value
+ggplot(total1, aes(y=Actual_value, x=Predicted_value))+
+  geom_point()+
+  geom_smooth(method=lm)+
+  #ggtitle(paste0("Model RM",x,y,z," training plot")) +
+  xlab("Predicted value") + ylab("Actual value")
+
+#Step 3: running linear model for training
+fit <- lm(Actual_value ~ Predicted_value, data = total1)
+summary(fit)
+
+
+#Validate and find prediction accuracies from prediction data (30%)
+p2 <- predict(rf, test) #predict from training model (70%) to validation set (30%)
+write.csv(p2,paste0("validation","_psmzg",".csv")) #save as external file since trying to data_frame it does't save sampleid
+
+#Step 1: comparison of actual v predicted
+pr <- read.csv(paste0("validation","_psmzg",".csv"))
+#Changing the column names 
+colnames(pr) <- c("SampleID", "Predicted_value")
+total2 <- merge(pr,df2,by="SampleID")
+write.csv(total2,paste0("predicted_vs_actual_in_validation","_psmzg",".csv"), row.names = FALSE) #saving the output of Step 1 for further comparison and analyses
+
+#Step2: plotting predicted vs actual value
+ggplot(total2, aes(y=Actual_value, x=Predicted_value)) +  geom_point() + geom_smooth(method=lm) +
+  #ggtitle(paste0("Model RM",x,y,z," validation plot")) +
+  xlab("Predicted value") + ylab("Actual value")+
+  theme_light()
+
+#Step 3: running linear model for validation
+fit4 <- lm(Actual_value ~ Predicted_value, data = total2)
+summary(fit4)
+```
+
