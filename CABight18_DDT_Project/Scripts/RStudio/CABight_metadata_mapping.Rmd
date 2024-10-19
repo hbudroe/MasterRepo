@@ -11,16 +11,11 @@ library(tidyverse)
 library(readxl)
 ```
 
-#Read in Mirayana's new input files
-```{r}
-path <- "CABight18_DDT_Project/Metadata/BikLab sample info v1.xlsx"
-chem_data <- read_excel(path, sheet = "chemistry")
-sed_data <- read_excel(path, sheet = "Sediment")
-index_data <- read_excel(path, sheet = "Indices - station info")
-```
-
 #process chem_data ----
 ```{r}
+path <- "/Users/hbudroe/Desktop/UGA/hbudroe repository/CABight18_DDT_Project/Metadata/BikLab sample info v1.xlsx"
+chem_data <- read_excel(path, sheet = "chemistry")
+
 chem_data <- chem_data[-1,] #get rid of A1N1 empty row
 
 #want to modify analytename cols to have units
@@ -30,6 +25,8 @@ chem_data$units <- gsub(" ", "_", chem_data$units) #this replaces all spaces com
 #replace % and %_dry_weight in units to %_dw 
 chem_data$units[chem_data$units == "%"] <- "%_dw"
 chem_data$units[chem_data$units == "%_dry_weight"] <- "%_dw"
+
+
 
 chem_data$analyte <- paste0(chem_data$analytename, "_", chem_data$units) #check 125=125 yay
 
@@ -42,10 +39,59 @@ length(unique(chem_data$analyte)) #124!!! (was 125=127 earlier) uh oh ok so some
 #there's the expected %dw and ng/g, but also %, ug/g, and NA - ug ok since consistent?
 #there are 10 sites for which NA_NA (not chem data at all beside site) --> remove these 
 
+###PAUSE HERE MIGHT NEED TO RECONCILE REPLICATES
+
 chem_data %>% pivot_wider(id_cols = site, names_from = analyte, values_from = result) -> q
 #doesn't work when I gather by site ?
 ```
 When I do
 B18-10023 (and a few others) have duplicated chemistry values --> so the pivot wider has c(,)
 This is the same as in the spreadsheet -->
+but some do have field replicates 1 & 2 (10053, 10176, 10201)
+lab replicates (10176, 10012,10020, 10023, 1-2samp[10046,10055, 10057,10188], 10065, 10076, 10107, 10133, 10144, 10158,10165, 10168, 10176, 10181, 10192, 10193)
+
+Process sediment data ----
+```{r}
+path <- "/Users/hbudroe/Desktop/UGA/hbudroe repository/CABight18_DDT_Project/Metadata/BikLab sample info v1.xlsx"
+sed_data <- read_excel(path, sheet = "Sediment")
+sed_data <- sed_data[-1,] #get rid of A1N1 empty row
+
+#remove the NA samples
+sed_data %>% filter(!is.na(pct_dw)) -> sed_data
+
+#want to modify commonname cols to have units (pct_dw)
+sed_data$sediment <- paste0(sed_data$CommonName, "_", "pct_dw")
+
+### PAUSE/COME BACK HERE -- MIGHT NEED TO RECONCILE (AVERAGE) FIELD DUPLICATES
+sed_data %>% group_by(site, sediment) %>% summarise(sed_av = mean(pct_dw)) -> sed_data
+
+sed_data %>% pivot_wider(id_cols = site, names_from = sediment, values_from = sed_av) -> sed_data
+#warning values not uniquely identified (field duplicates)                 
+```
+
+Process index data
+```{r}
+path <- "/Users/hbudroe/Desktop/UGA/hbudroe repository/CABight18_DDT_Project/Metadata/BikLab sample info v1.xlsx"
+index_data <- read_excel(path, sheet = "Indices - station info")
+index_data <- index_data[-1,] #get rid of A1N1 empty row
+
+#remove the NA samples
+index_data %>% filter(!is.na(Index_Score)) -> index_data
+
+###PAUSE/COME BACK HERE -- ARE THERE DUPLICATES? THERE'RE LIKE 3 DUPLICATE(2) BUT PROCEED FOR NOW
+
+#make columns for each index and 
+#index <- Index_Score, Condition.Class, Condition.Score, bight.cond.class, bight.cond.score, bight.good.bad
+index_data$index_score <- paste0(index_data$Index, "_", index_data$Index_Score)
+index_data$index_condition_class <- paste0(index_data$Index, "_", index_data$Condition.Class)
+index_data$index_condition_score <- paste0(index_data$Index, "_", index_data$Condition.Score)
+index_data$bight_condition_class <- paste0(index_data$Index, "_", index_data$bight.cond.class)
+index_data$bight_condition_score <- paste0(index_data$Index, "_", index_data$bight.cond.score)
+index_data$bight_classification <- paste0(index_data$Index, "_", index_data$bight.good.bad)
+
+#widen
+index_data %>% pivot_wider(id_cols = site, names_from = c(index_score, index_condition_class), values_from = c(Index_Score, Condition.Score))
+```
+
+
 
