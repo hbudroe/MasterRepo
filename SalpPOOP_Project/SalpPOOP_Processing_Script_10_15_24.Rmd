@@ -126,3 +126,37 @@ sampdata$ID[sampdata$ID == 'ST3'] <- 'ST1'
 sampdata$ID[sampdata$ID == 'ST4'] <- 'ST2'
 ```
 
+
+skipped forward, come back here, but final processing steps to get mzg object from mzg_no_isopora 
+mzgps was the first phyloseq object created before any processing occurred, then psmzg removed phylum unID/sum0 reads
+```{r}
+###NORMALIZE/STANDARDIZE 5/18
+###normalize by median sequencing depth
+
+#define function for normalization
+phyloseq_normalize_median <- function (ps) { 
+  ps_median = median(sample_sums(ps))
+  normalize_median = function(x, t=ps_median) (if(sum(x) > 0){ round(t * (x / sum(x)))} else {x})
+  ps = transform_sample_counts(ps, normalize_median)
+  cat(str_c("/n========== /n") )
+  print(ps)
+  cat(sprintf("/n==========/nThe median number of reads used for normalization is  %.0f", ps_median))
+  return(ps)
+}
+#normalize
+mzg_no_isopora %>% subset_taxa(Phylum!="Echinodermata") %>% subset_taxa(Phylum !="Bryozoa") %>% 
+  subset_taxa(Phylum !="Sipuncula") %>% subset_taxa(Phylum !="Nemertea") %>%
+  subset_taxa(Phylum !="Platyhelminthes") %>% subset_taxa(Phylum !="Rotifera") %>%
+  filter_taxa(function(x) sum(x) > 0 , TRUE) %>% #remove singletons (none present)
+phyloseq_normalize_median() -> mzg
+
+#####output ps objects######
+
+
+write.csv(otu_table(mzg),"C:/Users/budro/OneDrive/Desktop/SalpPOOP Project/Phyloseq/Data_Objects/salpPOOP_mzg_otu.csv")
+write.csv(tax_table(mzg),"C:/Users/budro/OneDrive/Desktop/SalpPOOP Project/Phyloseq/Data_Objects/salpPOOP_mzg_tax.csv")
+write.csv(sample_data(mzg),"C:/Users/budro/OneDrive/Desktop/SalpPOOP Project/Phyloseq/Data_Objects/salpPOOP_mzg_meta.csv")
+
+
+```
+

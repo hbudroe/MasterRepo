@@ -16,6 +16,20 @@ library(phyloseq)
 
 #Functions ----
 
+###First need to output required files to new computer
+Looking for mzg (and pr2) phylo objects <-
+(see salpPOOPthesis_finalplots_scriptR/phyloseq prep for final processing 5/18/23)
+want salpPOOP_mzg_meta/otu/tax
+```{r}
+#here I'm getting stats for the initally created, unfiltered mzgps object
+mzgps #12771 taxa, 196 samples, 9 tax ranks
+sum(sample_sums(mzgps)) #10006100
+sp_accum_mzgps <- specaccum(t(otu_table(mzgps)), method = "random")
+#plot(sp_accum_mzgps, col = "cadetblue1", ylab = "ASVs (10^3)",
+     xlab = "#Samples", ci.type = "poly", lwd=2, ylim = c(1, length(t(otu_table(mzgps)))+1000), ci.lty = 0, ci.col = alpha("cadetblue1", alpha = 0.2), cex.axis=0.6) #doesn't plot - figure out later?
+```
+
+
 ###Section 1 () ----
 
 ###Figure 2 (Compositional Depth Plots) ----
@@ -148,3 +162,6 @@ mdf$Biomass[mdf$DielPattern == "Night"] <- mdf$Biomass[mdf$DielPattern == "Night
   geom_hline(yintercept = 0, linewidth = 0.2)+
   facet_grid(~ID, scales="free_x"))
 ```
+
+
+#Figure ? Alpha diversity 
