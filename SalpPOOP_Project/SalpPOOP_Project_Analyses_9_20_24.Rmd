@@ -13,6 +13,10 @@ output: html_document
 library(tidyverse)
 library(vegan)
 library(phyloseq)
+library(ggplot2)
+library(ggbiplot)
+library(factoextra)
+library(DESeq2)
 
 #Functions ----
 
@@ -24,15 +28,83 @@ want salpPOOP_mzg_meta/otu/tax
 #here I'm getting stats for the initally created, unfiltered mzgps object
 mzgps #12771 taxa, 196 samples, 9 tax ranks
 sum(sample_sums(mzgps)) #10006100
-sp_accum_mzgps <- specaccum(t(otu_table(mzgps)), method = "random")
-#plot(sp_accum_mzgps, col = "cadetblue1", ylab = "ASVs (10^3)",
-     xlab = "#Samples", ci.type = "poly", lwd=2, ylim = c(1, length(t(otu_table(mzgps)))+1000), ci.lty = 0, ci.col = alpha("cadetblue1", alpha = 0.2), cex.axis=0.6) #doesn't plot - figure out later?
+
+#read in mzg phyloseq object from old computer so can keep running code on this new mac
+path = "/Users/hbudroe/Desktop/UGA/hbudroe repository/SalpPOOP_Project/Phyloseq_Data/"
+
+mzg_otu = read.csv(paste0(path, "salpPOOP_mzg_otu.csv"))
+mzg_tax = read.csv(paste0(path, "salpPOOP_mzg_tax.csv"))
+mzg_meta = read.csv(paste0(path, "salpPOOP_mzg_meta.csv"))
+
+###reformat (index) otus, tax table, meta
+mzg_otu %>% as.data.frame() -> otu
+row.names(otu) <- otu$X
+otu$X <- NULL #get rid of the extra taxID column now
+mzg_tax %>% as.data.frame() -> tax
+rownames(tax) <- tax$X
+tax$X <- NULL
+mzg_meta %>% as.data.frame() -> meta
+rownames(meta) <- meta$X
+meta$X <- NULL
+
+#make phyloseq object
+physeq_otu <- otu_table(otu, taxa_are_rows = F) #had T earlier but didn't match
+tax %>% as.matrix() %>% tax_table() -> physeq_tax #if don't then changes hash index
+physeq_meta <- sample_data(meta)
+mzg <- phyloseq(physeq_otu, physeq_tax, physeq_meta) #woohoo
+
+mzg #2574 taxa, 196 samples, 9 tax ranks
+sum(sample_sums(mzg)) #9006476
+#spec accum - come back and do on non-normalized data?
 ```
 
 
-###Section 1 () ----
+###Section 
 
-###Figure 2 (Compositional Depth Plots) ----
+###Section 1 (Oceanographic Properties) ----
+Fig1a Moira generated in Matlab since she had all the data points
+#Figure 1b: PCA of environmental characteristics
+```{r}
+env_df <- sample_data(mzg)[,c(17:22)] #define dataframe only containing numericals (did 17:22 potentialtemp:oxygen)
+  #doesn't include any biological factors, tow/net/station data ; add in salp type and dielpattern as numeric vectors
+env_df$DielPattern <- ifelse(sample_data(mzg)$DielPattern == "Night", 0, 1) #night = 0, day = 1
+env_df$SalpBloom <-ifelse(sample_data(mzg)$SalpType == "Non-Salp", 0, 1) #night = 0, day = 1
+water_type <- sample_data(mzg)$WaterType #create vectors of categories
+depth_zone <- sample_data(mzg)$DepthZone # ^^
+
+pca_mzg <- prcomp(env_df, scale. = TRUE) #do pca
+summary(pca_mzg)
+scree_data <- data.frame(
+  Component = 1:length(pca_mzg$sdev),
+  Variance = pca_mzg$sdev^2 / sum(pca_mzg$sdev^2)
+)
+
+ggplot(scree_data, aes(x = Component, y = Variance)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  geom_line() +
+  geom_point() +
+  xlab("Principal Components") +
+  ylab("Proportion of Variance Explained") +
+  ggtitle("Scree Plot")
+
+pca_mzg_vars <- get_pca_var(pca_mzg) #factoextra:: tells how individual vars contrib to each pc
+head(pca_mzg_vars$contrib, 7)
+fviz_contrib(pca_mzg, choice = "var", axes = 1, top = 10) #visualizes contribution to pcs
+fviz_contrib(pca_mzg, choice = "var", axes = 2, top = 10) # ^^ pc2
+
+group_colors <- c(Subantarctic = "#56B4E9", Subtropical = "#E69F00")
+ggbiplot(pca_mzg, obs.scale = 1, var.scale = 1)+
+  geom_point(aes(color = water_type, shape = depth_zone, size = 2, alpha = 0.3))+
+  scale_colour_manual(values=group_colors)+
+  stat_ellipse(geom = "polygon", aes(group = factor(water_type), fill = factor(water_type), alpha = 0.25), linetype = 1)+
+  stat_ellipse(aes(group = factor(depth_zone)), linetype = 2, alpha = 0.5)+
+  theme_light()+
+  guides(fill = "none", size = "none", alpha = "none")+
+  scale_fill_manual(values=group_colors)+
+  labs(color = "Water Mass", shape = "Depth Zone")
+```
+
+###Section 2 (Compositional Depth Plots) ----
 #Figure 2a: Total community read/biomass abundance ~depth
 ```{r}
 #add in columns (interval width + depth midpoints) to physeq object
@@ -163,5 +235,222 @@ mdf$Biomass[mdf$DielPattern == "Night"] <- mdf$Biomass[mdf$DielPattern == "Night
   facet_grid(~ID, scales="free_x"))
 ```
 
+###Section 3 (Alpha and Beta Diversity) ----
+#Figure 3a: Alpha diversity 
+```{r}
+mzg %>% estimate_richness() %>% tibble::rownames_to_column() -> alphadiv_mzg #prep df with div and env values
+mzg %>% sample_data() %>% data.frame() %>% tibble::rownames_to_column() %>% inner_join(alphadiv_mzg) -> alphadiv_mzg
+alphadiv_mzg$MinSize <- factor(alphadiv_mzg$MinSize, levels=c("2", "5", "1")) #change levels of size so in order
+#plot shannon diversity across depth
+group_colors = c("5" = "#8EE5EE", "2" = "#A2CD5A", "1" = "#6A5ACD")
+ggplot(data = alphadiv_mzg, aes(x = MaxDepth, y = Shannon))+
+  geom_point(aes(color = MinSize))+
+  geom_smooth(aes(color = MinSize))+
+  #scale_colour_manual(values=group_colors)+
+  coord_flip()+
+  scale_x_reverse()+
+  #geom_vline(xintercept = 200)+
+  labs(y = "Shannon Diversity", x = "Depth (m)", color = "Minimum Size (mm)")+
+  theme_classic()+
+  scale_color_manual(values = group_colors, labels = c("0.2", "0.5", "1"))+
+  facet_wrap(~WaterType, scales = "free_x")
 
-#Figure ? Alpha diversity 
+#plotting with day/night colored
+disp1 <- max(alphadiv_mzg$Shannon)
+alphadiv_mzg$Shannon[alphadiv_mzg$DielPattern == "Night"] <- alphadiv_mzg$Shannon[alphadiv_mzg$DielPattern == "Night"]*-1 
+ggplot(data = alphadiv_mzg, aes(x = MaxDepth, y = Shannon))+
+  annotate("rect", xmin = -Inf, xmax = Inf, ymin =  -Inf, ymax = 0, fill = "grey60", alpha = 0.5)+
+  geom_point(aes(color = MinSize))+
+  geom_smooth(aes(group = DielPattern, color = "black"))+  #, color = MinSize)
+  coord_flip()+
+  scale_x_reverse()+
+  #geom_vline(xintercept = 200)+
+  labs(y = "Shannon Diversity", x = "Depth (m)", color = "Minimum Size (mm)")+
+  theme_bw()+
+  scale_color_manual(values = group_colors, labels = c("0.2", "0.5", "1"))+
+  facet_wrap(~WaterType+SalpType, scales = "free_x") +
+  geom_hline(yintercept = 0, linewidth = 0.2)
+```
+
+#Figure 3b: NMDS - two option for classic nmds below
+```{r}
+
+set.seed(1234)
+ord=ordinate(mzg, "NMDS", "bray",k=3,permutations=9999)
+group_colors <- c(Subantarctic = "#56B4E9", Subtropical = "#E69F00")
+set.seed(1234)
+ord=ordinate(mzg, "NMDS", "bray",k=3,permutations=9999)
+plot_ordination(mzg,ord,type="samples",color="WaterType",shape="DepthZone")+
+  geom_point(aes(color=WaterType,size=3),alpha=.5)+ 
+  scale_colour_manual(values = c("#56B4E9", "#E69F00"))+
+  #stat_ellipse()+
+  stat_ellipse(aes(linetype=DepthZone))+
+  #stat_ellipse(type = "t", level=.95, linetype=2, geom="polygon", alpha=.3, aes(group = WaterType,fill=WaterType))+
+  theme(axis.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        panel.background = element_blank(), panel.border = element_rect(fill = NA, colour = "grey30"), 
+        axis.ticks = element_blank(), axis.text = element_blank(), legend.key = element_blank(), 
+        legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 9, colour = "grey30")) +
+  guides(color=guide_legend(title="Water Type"), fill="none",size="none")+
+  #scale_alpha_manual(guide = FALSE)+
+  theme_test(base_size = 16) #+
+facet_grid(~MinSize)
+
+set.seed(1234)
+ord=ordinate(mzg, "NMDS", "bray",k=3,permutations=9999)
+group_colors <- c(Subantarctic = "#56B4E9", Subtropical = "#E69F00")
+plot_ordination(mzg,ord,type="samples")+  #,color="WaterType",shape="DepthZone"
+  geom_point(aes(color = WaterType, shape = DepthZone, size = 2, alpha = 0.3))+
+  scale_colour_manual(values=group_colors)+
+  stat_ellipse(geom = "polygon", aes(group = WaterType, fill = WaterType, alpha = 0.25), linetype = 3)+
+  #stat_ellipse(aes(group = factor(DepthZone)), linetype = 2, alpha = 0.5)+
+  stat_ellipse(aes(linetype=DepthZone))+
+  scale_fill_manual(values=group_colors)+  #this line controls ellipse colors
+  theme(axis.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        panel.background = element_blank(), panel.border = element_rect(fill = NA, colour = "grey30"), 
+        axis.ticks = element_blank(), axis.text = element_blank(), legend.key = element_blank(), 
+        legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 9, colour = "grey30")) +
+  guides(color=guide_legend(title="Water Type"),fill="none",size="none", alpha = "none")+
+  #scale_alpha_manual(guide = FALSE)+
+  theme_test(base_size = 16 )
+```
+
+###Section 4 (Drivers of community) ----
+#Figure 4a: DESeq2
+need to go back and redo DESeq2 on initially unnormalized data <- go back and find filterin but before norm
+```{r}
+mzg %>% 
+
+
+
+
+
+mzg %>% subset_taxa(Class=="Hexanauplia") %>% filter_taxa(function(x) sum(x > 0) > 1, TRUE)->deseqps
+otu_table(deseqps)=otu_table(deseqps)+1
+diagdds = phyloseq_to_deseq2(deseqps, ~ WaterType)
+diagdds = DESeq(diagdds, test="Wald", fitType="mean")
+res = results(diagdds, cooksCutoff = FALSE)
+alpha = 0.01
+sigtab = res[which(res$padj < alpha), ]
+sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(deseqps)[rownames(sigtab), ], "matrix"))
+
+#Add watermass so can plot
+sigtab$WaterType=0
+ncol(sigtab)->WaterType
+logchange=sigtab$log2FoldChange
+for(i in 1:length(logchange))
+{
+  if(logchange[i] >=0)
+  {
+    sigtab[i,WaterType]="Subtropical"
+    #print("shrek")
+  } else {
+    sigtab[i,WaterType]="Subantarctic"
+  }
+}
+theme_set(theme_bw())
+scale_fill_discrete <- function(palname = "Set1", ...) {
+  scale_fill_brewer(palette = palname, ...)
+}
+#summary of comparison, shows which group +/-
+summary(res)
+res
+
+#plot 
+x = tapply(sigtab$log2FoldChange, sigtab$Class, function(x) max(x))
+x = sort(x, TRUE)
+sigtab$Order = factor(as.character(sigtab$Class), levels=names(x))
+# Genus order -- tried family
+x = tapply(sigtab$log2FoldChange, sigtab$Family, function(x) max(x))
+x = sort(x, TRUE)
+sigtab$Genus = factor(as.character(sigtab$Family), levels=names(x))
+ggplot(sigtab, aes(x=Family, y=log2FoldChange, color=Family)) + geom_point(size=6,alpha=.8) + 
+  theme( #axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5
+    axis.text.x=element_blank(),  #remove y axis labels
+    axis.ticks.x=element_blank(),
+    #plot.title = element_text(size = 12, face = "bold"),
+    legend.title=element_text(size=10), 
+    legend.text=element_text(size=6))+
+  facet_wrap(~Class,scales="free_x")+
+  geom_hline(yintercept=0)
+```
+
+#Figure 4b: Bioenv
+```{r}
+#testing only pure environmental vars bioenv
+otu_table(mzg)[, which(colSums(otu_table(mzg)) != 0)] -> otus_mzg
+env_df <- sample_data(mzg)[,c("MaxDepth","Density","Latitude_Start","Longitude_Start","PotentialTemperature","Oxygen","Salinity","Transmissivity","Fluorescence")] #extract pure env continuous vars
+bioenv(comm=(otus_mzg),env=env_df,method="spearman",index="bray",upto=ncol(env_df),trace=FALSE,partial=NULL,metric="euclidean") ->bioenvresult #run bioenv
+
+#mantel
+bioenvdist(bioenvresult,which="best") -> bioenvtab #select the best model for mantel test
+mantel(vegdist((otus_mzg),method="bray"),bioenvtab,method="spearman", permutations=9999,na.rm=TRUE) -> mant #run mantel
+
+#define plotting data
+ord=ordinate(mzg,"NMDS","bray",k=3)
+en=envfit(ord, env_df, permutations=999, na.rm=TRUE)  #sammple_data instead of env df?
+group_colors <- c(Subantarctic = "#56B4E9", Subtropical = "#E69F00") #define colors for plot
+data.scores = as.data.frame(ord$points)
+data.scores$WaterType = sample_data(mzg)$WaterType
+data.scores$DepthZone = sample_data(mzg)$DepthZone
+en_coord_cont = as.data.frame(scores(en, "vectors")) * ordiArrowMul(en)
+#rownames(en_coord_cont)=c("Depth","Density","Latitude","Temperature","Oxygen")
+en_coord_cat = as.data.frame(scores(en, "factors")) * ordiArrowMul(en)
+
+#plot
+ggplot(data = data.scores, aes(x = MDS1, y = MDS2)) + 
+  geom_point(data = data.scores, aes(colour = WaterType, shape = DepthZone), size = 3, alpha = 0.8)+  
+  scale_colour_manual(values = group_colors)+   
+  geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
+               data = en_coord_cont, linewidth =1, alpha = 0.5, colour = "grey30")+ 
+  geom_text(data = en_coord_cont, aes(x = NMDS1, y = NMDS2), colour = "grey30", size=3, fontface = "bold", label = row.names(en_coord_cont)) + 
+  theme(axis.title = element_text(size =10, face = "bold", colour = "grey30"), 
+        panel.background = element_blank(), panel.border = element_rect(fill = NA, colour = "grey30"), 
+        axis.ticks = element_blank(), axis.text = element_blank(), legend.key = element_blank(), 
+        legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 9, colour = "grey30")) + 
+  labs(colour = "WaterType")
+
+```
+
+Isolate GZ v crunchies?
+```{r}
+mzg %>% subset_taxa(Class == "Hydrozoa" | Class == "Appendicularia" | Class == "Scyphozoa" | Class == "Thaliacea" | Phylum == "Ctenophora") -> mzg_gz #GZ isolated
+
+otu_table(mzg_gz)[, which(colSums(otu_table(mzg_gz)) != 0)] -> otus_mzg_gz
+env_df <- sample_data(mzg_gz)[,c("MaxDepth","Density","Latitude_Start","Longitude_Start","PotentialTemperature","Oxygen","Salinity","Transmissivity","Fluorescence")] #extract pure env continuous vars
+bioenv(comm=(otus_mzg_gz),env=env_df,method="spearman",index="bray",upto=ncol(env_df),trace=FALSE,partial=NULL,metric="euclidean") ->bioenvresult #run bioenv
+
+#mantel
+bioenvdist(bioenvresult,which="best") -> bioenvtab #select the best model for mantel test
+mantel(vegdist((otus_mzg_gz),method="bray"),bioenvtab,method="spearman", permutations=9999,na.rm=TRUE) -> mant #run mantel
+
+#define plotting data
+ord=ordinate(mzg_gz,"NMDS","bray",k=3)
+en=envfit(ord, env_df, permutations=999, na.rm=TRUE)  #sammple_data instead of env df?
+group_colors <- c(Subantarctic = "#56B4E9", Subtropical = "#E69F00") #define colors for plot
+data.scores = as.data.frame(ord$points)
+data.scores$WaterType = sample_data(mzg_gz)$WaterType
+data.scores$DepthZone = sample_data(mzg_gz)$DepthZone
+en_coord_cont = as.data.frame(scores(en, "vectors")) * ordiArrowMul(en)
+#rownames(en_coord_cont)=c("Depth","Density","Latitude","Temperature","Oxygen")
+en_coord_cat = as.data.frame(scores(en, "factors")) * ordiArrowMul(en)
+
+#plot
+ggplot(data = data.scores, aes(x = MDS1, y = MDS2)) + 
+  geom_point(data = data.scores, aes(colour = WaterType, shape = DepthZone), size = 3, alpha = 0.8)+  
+  scale_colour_manual(values = group_colors)+   
+  geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
+               data = en_coord_cont, linewidth =1, alpha = 0.5, colour = "grey30")+ 
+  geom_text(data = en_coord_cont, aes(x = NMDS1, y = NMDS2), colour = "grey30", size=3, fontface = "bold", label = row.names(en_coord_cont)) + 
+  theme(axis.title = element_text(size =10, face = "bold", colour = "grey30"), 
+        panel.background = element_blank(), panel.border = element_rect(fill = NA, colour = "grey30"), 
+        axis.ticks = element_blank(), axis.text = element_blank(), legend.key = element_blank(), 
+        legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 9, colour = "grey30")) + 
+  labs(colour = "WaterType")
+
+
+```
+
