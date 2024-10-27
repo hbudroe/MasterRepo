@@ -124,8 +124,67 @@ sampdata$ID <- ifelse(sampdata$WaterType=="Subantarctic",paste0("SA",substr(samp
 sampdata$ID[sampdata$ID == 'SA5'] <- 'SA3'
 sampdata$ID[sampdata$ID == 'ST3'] <- 'ST1'
 sampdata$ID[sampdata$ID == 'ST4'] <- 'ST2'
+
+#work on fixing fastq names
+googdata="https://docs.google.com/spreadsheets/d/1tKhRrnsyRMNwpQpYlr_9HUDoBUYpVK4RIApvrt_piFU/edit#gid=0"
+sampID=read_sheet(googdata,sheet=9) %>% fill(Tow,Net)
+#grab sizes + get rid of 'b'
+sizevect=str_split(sampID$OLD_IDs,pattern="-",simplify=TRUE)[,3]
+sizevect=gsub('b','',sizevect)
+sampID$Size=sizevect
+#make the new ID!
+newID=paste0(sampID$Site,"_T",sampID$Tow,"_N",sampID$Net, "_",sampID$Size)
+sampID$newID=newID
+
+#replace old iDs with the new -- choose only mocness data (work with ctd later)
+asvtab=tibble::rownames_to_column(data.frame(seqtab.nochim))[c(1:196),]
+asvtab$rowname=newID
+asvtab=column_to_rownames(asvtab,var="rowname")
 ```
 
+Bring into phyloseq and fix tax headers
+```{r}
+#fix tax file
+#make new ps object with fixed tax levels 
+###fix tax identification levels for mzg
+data.frame(taxa4) %>% rownames_to_column()->taxa4fixed
+taxa4fixed=taxa4fixed[,c(1,2,5,6,9,10,13,17,19,21)]
+colnames(taxa4fixed)=c("Sequence","Kingdom","Phylum","Subphylum","Class",
+                       "Subclass","Order","Family","Genus","Species")
+taxa4fixed %>% column_to_rownames(var="Sequence") %>% as.matrix() %>% tax_table() -> tax
+
+otu=otu_table(asvtab,taxa_are_rows=FALSE)
+meta=sample_data(sampdata)
+
+mzgps=phyloseq(otu,tax,meta)
+```
+
+filtering, remove isopora (found in salpPOOP Species Analysis script)
+```{r}
+#actually subset unidentified at chosen level
+psmzg=subset_taxa(mzgps,Phylum!="unassigned")
+
+###remove sum0 asvs
+# Calculate the col sums of the OTU table
+sums <- colSums(otu_table(psmzg))
+# Extract the row names (ASV identifiers) with row sums > 0
+asvs_to_keep <- colnames(otu_table(psmzg))[sums > 0]
+# Subset the phyloseq object to keep only the ASVs with row sums > 0
+psmzg <- prune_taxa(asvs_to_keep, psmzg)
+#View(tax_table(psmzg))
+#check # species
+#length(unique(data.frame(tax_table(psmzg)))$Species) #326 unique mzg,314 unique psmzg
+#unique(data.frame(tax_table(psmzg)))$Species
+
+#Create ps object without isopora togianensis
+#mzg_no_isopora for isopora removed
+#mzg_no_isopora_glom for species glommed after ispora was removed
+```{r}
+#mzg_no_isopora=subset_taxa(psmzg,Species!="Isopora_togianensis") #if you take out at the species level, it also removed anything not identified to the species level
+#Order was the highest level for which we could identify isopora + still mostly keep everything else
+subset_taxa(psmzg,Order!="Scleractinia") -> mzg_no_isopora
+
+```
 
 skipped forward, come back here, but final processing steps to get mzg object from mzg_no_isopora 
 mzgps was the first phyloseq object created before any processing occurred, then psmzg removed phylum unID/sum0 reads
