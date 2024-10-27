@@ -7,6 +7,8 @@
 library(tidyverse)
 library(vegan)
 library(phyloseq)
+#install.packages("devtools")
+devtools::install_github("houyunhuang/ggcor")
 
 #Easy data to use - phyloseq GlobalPatterns
 data("GlobalPatterns")
@@ -63,6 +65,27 @@ dev.off()
 #able to plot successfully if t() -- make sure taxa are cols, samples as rows
 #figure out the pdf() -- first command is file path
 #but it saved the file as the folder (since wouldn't let me put /name), and opening is text string???
+
+
+#mantel visualization ----
+mantel02 <- fortify_mantel(varespec, varechem, 
+                           spec.select = list(1:10, 5:14, 7:22, 9:32)) %>% 
+  mutate(r = cut(r, breaks = c(-Inf, 0.25, 0.5, Inf), 
+                 labels = c("<0.25", "0.25-0.5", ">=0.5"),
+                 right = FALSE),
+         p.value = cut(p.value, breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                       labels = c("<0.001", "0.001-0.01", "0.01-0.05", ">=0.05"),
+                       right = FALSE))
+quickcor(varechem, type = "upper") + geom_square() + 
+  add_link(mantel02, mapping = aes(colour = p.value, size = r),
+           diag.label = TRUE) +
+  scale_size_manual(values = c(0.5, 1.5, 3)) +
+  add_diag_label() + remove_axis("x")
+#> Warning: `add_diag_label()` is deprecated. Use `geom_diag_label()` instead.
+
+
+
+
 
 
 

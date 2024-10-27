@@ -41,7 +41,7 @@ length(unique(chem_data$analyte)) #124!!! (was 125=127 earlier) uh oh ok so some
 
 ###PAUSE HERE MIGHT NEED TO RECONCILE REPLICATES
 
-chem_data %>% pivot_wider(id_cols = site, names_from = analyte, values_from = result) -> q
+chem_data %>% pivot_wider(id_cols = site, names_from = analyte, values_from = result) -> chem_df
 #doesn't work when I gather by site ?
 ```
 When I do
@@ -65,7 +65,7 @@ sed_data$sediment <- paste0(sed_data$CommonName, "_", "pct_dw")
 ### PAUSE/COME BACK HERE -- MIGHT NEED TO RECONCILE (AVERAGE) FIELD DUPLICATES
 sed_data %>% group_by(site, sediment) %>% summarise(sed_av = mean(pct_dw)) -> sed_data
 
-sed_data %>% pivot_wider(id_cols = site, names_from = sediment, values_from = sed_av) -> sed_data
+sed_data %>% pivot_wider(id_cols = site, names_from = sediment, values_from = sed_av) -> sed_df
 #warning values not uniquely identified (field duplicates)                 
 ```
 
@@ -82,16 +82,31 @@ index_data %>% filter(!is.na(Index_Score)) -> index_data
 
 #make columns for each index and 
 #index <- Index_Score, Condition.Class, Condition.Score, bight.cond.class, bight.cond.score, bight.good.bad
-index_data$index_score <- paste0(index_data$Index, "_", index_data$Index_Score)
-index_data$index_condition_class <- paste0(index_data$Index, "_", index_data$Condition.Class)
-index_data$index_condition_score <- paste0(index_data$Index, "_", index_data$Condition.Score)
-index_data$bight_condition_class <- paste0(index_data$Index, "_", index_data$bight.cond.class)
-index_data$bight_condition_score <- paste0(index_data$Index, "_", index_data$bight.cond.score)
-index_data$bight_classification <- paste0(index_data$Index, "_", index_data$bight.good.bad)
+index_data$index_score <- paste0(index_data$Index, "_score")
+index_data$index_condition_class <- paste0(index_data$Index, "_cond_class")
+index_data$index_condition_score <- paste0(index_data$Index, "_cond_score")
+index_data$bight_condition_class <- paste0(index_data$Index, "_bight_cond_class")
+index_data$bight_condition_score <- paste0(index_data$Index, "_bight_cond_score")
+index_data$bight_classification <- paste0(index_data$Index, "_bight_good_bad")
 
 #widen
-index_data %>% pivot_wider(id_cols = site, names_from = c(index_score, index_condition_class), values_from = c(Index_Score, Condition.Score))
-```
+#index col fill with index score
+#index_condition_class pull from Condition.Class
+#index_condition_score from Condition.Score
+#bight_condition_class from bight.cond.class
+#ight_condition_score from bight.cond.score
+#bight_classification from bight.good.bad
+index_data %>% pivot_wider(id_cols = site, names_from = index_score, values_from = Index_Score) -> aindex #doing multiple in c() doesn't seem to work - doesn't unique match 1:1 #229 sites matches unique #sites in index_data
+index_data %>% pivot_wider(id_cols = site, names_from = index_condition_class, values_from = Condition.Class) -> bindex
+index_data %>% pivot_wider(id_cols = site, names_from = index_condition_score, values_from = Condition.Score) -> cindex
+index_data %>% pivot_wider(id_cols = site, names_from = bight_condition_class, values_from = bight.cond.class) -> dindex
+index_data %>% pivot_wider(id_cols = site, names_from = bight_condition_score, values_from = bight.cond.score) -> eindex
+index_data %>% pivot_wider(id_cols = site, names_from = bight_classification, values_from = bight.good.bad) -> findex
 
+aindex %>%
+  left_join(bindex, by='site') %>%left_join(cindex, by='site') %>% left_join(dindex, by='site') %>% left_join(eindex, by='site') %>% left_join(findex, by='site') -> index_df
+
+```
+note to self - some replicates in 10201
 
 

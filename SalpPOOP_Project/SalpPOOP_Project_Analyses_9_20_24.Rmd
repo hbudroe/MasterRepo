@@ -29,7 +29,7 @@ want salpPOOP_mzg_meta/otu/tax
 mzgps #12771 taxa, 196 samples, 9 tax ranks
 sum(sample_sums(mzgps)) #10006100
 
-#read in mzg phyloseq object from old computer so can keep running code on this new mac
+#read in finalized mzg phyloseq object from old computer so can keep running code on this new mac (filtered, normalized...)
 path = "/Users/hbudroe/Desktop/UGA/hbudroe repository/SalpPOOP_Project/Phyloseq_Data/"
 
 mzg_otu = read.csv(paste0(path, "salpPOOP_mzg_otu.csv"))
@@ -58,8 +58,6 @@ sum(sample_sums(mzg)) #9006476
 #spec accum - come back and do on non-normalized data?
 ```
 
-
-###Section 
 
 ###Section 1 (Oceanographic Properties) ----
 Fig1a Moira generated in Matlab since she had all the data points
@@ -320,13 +318,7 @@ plot_ordination(mzg,ord,type="samples")+  #,color="WaterType",shape="DepthZone"
 #Figure 4a: DESeq2
 need to go back and redo DESeq2 on initially unnormalized data <- go back and find filterin but before norm
 ```{r}
-mzg %>% 
-
-
-
-
-
-mzg %>% subset_taxa(Class=="Hexanauplia") %>% filter_taxa(function(x) sum(x > 0) > 1, TRUE)->deseqps
+mzg %>% filter_taxa(function(x) sum(x > 0) > 1, TRUE)->deseqps
 otu_table(deseqps)=otu_table(deseqps)+1
 diagdds = phyloseq_to_deseq2(deseqps, ~ WaterType)
 diagdds = DESeq(diagdds, test="Wald", fitType="mean")
@@ -374,7 +366,14 @@ ggplot(sigtab, aes(x=Family, y=log2FoldChange, color=Family)) + geom_point(size=
     legend.text=element_text(size=6))+
   facet_wrap(~Class,scales="free_x")+
   geom_hline(yintercept=0)
+
 ```
+
+#Figure 4.1a: indicator species or most abundants?
+```{r}
+
+```
+
 
 #Figure 4b: Bioenv
 ```{r}
@@ -427,6 +426,7 @@ bioenvdist(bioenvresult,which="best") -> bioenvtab #select the best model for ma
 mantel(vegdist((otus_mzg_gz),method="bray"),bioenvtab,method="spearman", permutations=9999,na.rm=TRUE) -> mant #run mantel
 
 #define plotting data
+set.seed()
 ord=ordinate(mzg_gz,"NMDS","bray",k=3)
 en=envfit(ord, env_df, permutations=999, na.rm=TRUE)  #sammple_data instead of env df?
 group_colors <- c(Subantarctic = "#56B4E9", Subtropical = "#E69F00") #define colors for plot
@@ -450,7 +450,82 @@ ggplot(data = data.scores, aes(x = MDS1, y = MDS2)) +
         legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
         legend.text = element_text(size = 9, colour = "grey30")) + 
   labs(colour = "WaterType")
+```
+Isolate crunchies
+```{r}
+mzg %>% subset_taxa(Class != "Hydrozoa" & Class != "Appendicularia" & Class != "Scyphozoa" & Class != "Thaliacea" & Phylum != "Ctenophora") -> mzg_crunch #isolated
 
+otu_table(mzg_crunch)[, which(colSums(otu_table(mzg_gz)) != 0)] -> otus_mzg_crunch
+env_df <- sample_data(mzg_crunch)[,c("MaxDepth","Density","Latitude_Start","Longitude_Start","PotentialTemperature","Oxygen","Salinity","Transmissivity","Fluorescence")] #extract pure env continuous vars
+bioenv(comm=(otus_mzg_crunch),env=env_df,method="spearman",index="bray",upto=ncol(env_df),trace=FALSE,partial=NULL,metric="euclidean") ->bioenvresult #run bioenv
+
+#mantel
+bioenvdist(bioenvresult,which="best") -> bioenvtab #select the best model for mantel test
+mantel(vegdist((otus_mzg_crunch),method="bray"),bioenvtab,method="spearman", permutations=9999,na.rm=TRUE) -> mant #run mantel
+
+#define plotting data
+set.seed(1234)
+ord=ordinate(mzg_crunch,"NMDS","bray",k=3)
+en=envfit(ord, env_df, permutations=999, na.rm=TRUE)  #sammple_data instead of env df?
+group_colors <- c(Subantarctic = "#56B4E9", Subtropical = "#E69F00") #define colors for plot
+data.scores = as.data.frame(ord$points)
+data.scores$WaterType = sample_data(mzg_gz)$WaterType
+data.scores$DepthZone = sample_data(mzg_gz)$DepthZone
+en_coord_cont = as.data.frame(scores(en, "vectors")) * ordiArrowMul(en)
+#rownames(en_coord_cont)=c("Depth","Density","Latitude","Temperature","Oxygen")
+en_coord_cat = as.data.frame(scores(en, "factors")) * ordiArrowMul(en)
+
+#plot
+ggplot(data = data.scores, aes(x = MDS1, y = MDS2)) + 
+  geom_point(data = data.scores, aes(colour = WaterType, shape = DepthZone), size = 3, alpha = 0.8)+  
+  scale_colour_manual(values = group_colors)+   
+  geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
+               data = en_coord_cont, linewidth =1, alpha = 0.5, colour = "grey30")+ 
+  geom_text(data = en_coord_cont, aes(x = NMDS1, y = NMDS2), colour = "grey30", size=3, fontface = "bold", label = row.names(en_coord_cont)) + 
+  theme(axis.title = element_text(size =10, face = "bold", colour = "grey30"), 
+        panel.background = element_blank(), panel.border = element_rect(fill = NA, colour = "grey30"), 
+        axis.ticks = element_blank(), axis.text = element_blank(), legend.key = element_blank(), 
+        legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 9, colour = "grey30")) + 
+  labs(colour = "WaterType")
+```
+bioenv explored for various taxa
+```{r}
+mzg %>% subset_taxa(Order == "Siphonophorae") -> mzg_siph #isolated siphonophores --> rho .306, (dens, lat, trans, fluor)
+otu_table(mzg_siph)[, which(colSums(otu_table(mzg_siph)) != 0)] -> otus_mzg_siph
+env_df <- sample_data(mzg_siph)[,c("MaxDepth","Density","Latitude_Start","Longitude_Start","PotentialTemperature","Oxygen","Salinity","Transmissivity","Fluorescence")] #extract pure env continuous vars
+bioenv(comm=(otus_mzg_siph),env=env_df,method="spearman",index="bray",upto=ncol(env_df),trace=FALSE,partial=NULL,metric="euclidean") ->bioenvresult #run bioenv
+#mantel
+bioenvdist(bioenvresult,which="best") -> bioenvtab #select the best model for mantel test
+mantel(vegdist((otus_mzg_siph),method="bray"),bioenvtab,method="spearman", permutations=9999,na.rm=TRUE) -> mant #run mantel
+
+
+#order calanoida
+mzg %>% subset_taxa(Order == "Calanoida") -> mzg_cal #isolated calanoida --> rho .2697 , dens, ox, sal
+otu_table(mzg_cal)[, which(colSums(otu_table(mzg_cal)) != 0)] -> otus_mzg_cal
+env_df <- sample_data(mzg_cal)[,c("MaxDepth","Density","Latitude_Start","Longitude_Start","PotentialTemperature","Oxygen","Salinity","Transmissivity","Fluorescence")] #extract pure env continuous vars
+bioenv(comm=(otus_mzg_cal),env=env_df,method="spearman",index="bray",upto=ncol(env_df),trace=FALSE,partial=NULL,metric="euclidean") ->bioenvresult #run bioenv
+#mantel
+bioenvdist(bioenvresult,which="best") -> bioenvtab #select the best model for mantel test
+mantel(vegdist((otus_mzg_cal),method="bray"),bioenvtab,method="spearman", permutations=9999,na.rm=TRUE) -> mant #run mantel
+
+#euphs
+mzg %>% subset_taxa(Order == "Euphausiacea") -> mzg_euph #isolated euphs --> rho .365, depth
+otu_table(mzg_euph)[, which(colSums(otu_table(mzg_euph)) != 0)] -> otus_mzg_euph
+env_df <- sample_data(mzg_euph)[,c("MaxDepth","Density","Latitude_Start","Longitude_Start","PotentialTemperature","Oxygen","Salinity","Transmissivity","Fluorescence")] #extract pure env continuous vars
+bioenv(comm=(otus_mzg_euph),env=env_df,method="spearman",index="bray",upto=ncol(env_df),trace=FALSE,partial=NULL,metric="euclidean") ->bioenvresult #run bioenv
+#mantel
+bioenvdist(bioenvresult,which="best") -> bioenvtab #select the best model for mantel test
+mantel(vegdist((otus_mzg_euph),method="bray"),bioenvtab,method="spearman", permutations=9999,na.rm=TRUE) -> mant #run mantel
+
+#metridinidae
+mzg %>% subset_taxa(Family == "Metridinidae") -> mzg_metr #isolated metridinidae --> rho .1673, dnes, trans ; p 1e-04
+otu_table(mzg_metr)[, which(colSums(otu_table(mzg_metr)) != 0)] -> otus_mzg_metr
+env_df <- sample_data(mzg_metr)[,c("MaxDepth","Density","Latitude_Start","Longitude_Start","PotentialTemperature","Oxygen","Salinity","Transmissivity","Fluorescence")] #extract pure env continuous vars
+bioenv(comm=(otus_mzg_metr),env=env_df,method="spearman",index="bray",upto=ncol(env_df),trace=FALSE,partial=NULL,metric="euclidean") ->bioenvresult #run bioenv
+#mantel
+bioenvdist(bioenvresult,which="best") -> bioenvtab #select the best model for mantel test
+mantel(vegdist((otus_mzg_metr),method="bray"),bioenvtab,method="spearman", permutations=9999,na.rm=TRUE) -> mant #run mantel
 
 ```
 
