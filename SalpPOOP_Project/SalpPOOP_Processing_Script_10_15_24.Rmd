@@ -179,7 +179,6 @@ psmzg <- prune_taxa(asvs_to_keep, psmzg)
 #Create ps object without isopora togianensis
 #mzg_no_isopora for isopora removed
 #mzg_no_isopora_glom for species glommed after ispora was removed
-```{r}
 #mzg_no_isopora=subset_taxa(psmzg,Species!="Isopora_togianensis") #if you take out at the species level, it also removed anything not identified to the species level
 #Order was the highest level for which we could identify isopora + still mostly keep everything else
 subset_taxa(psmzg,Order!="Scleractinia") -> mzg_no_isopora

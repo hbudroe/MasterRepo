@@ -3,12 +3,15 @@
 #Purpose: This script is intended for figuring out some analyses/visualizations that 
 #I find online and want to implement but have trouble running - to keep main scripts tidier
 
+
 #Libraries
 library(tidyverse)
 library(vegan)
 library(phyloseq)
 #install.packages("devtools")
 devtools::install_github("houyunhuang/ggcor")
+library(ANCOMBC)
+library(DT)
 
 #Easy data to use - phyloseq GlobalPatterns
 data("GlobalPatterns")
@@ -84,8 +87,185 @@ quickcor(varechem, type = "upper") + geom_square() +
 #> Warning: `add_diag_label()` is deprecated. Use `geom_diag_label()` instead.
 
 
+###ANCOMBC2 ----
+#(start with phyloseq object (taxa are rows = FALSE))
 
+#follow tutotiral with their data
+data(atlas1006, package = "microbiome")
+tse = mia::convertFromPhyloseq(atlas1006)
+# subset to baseline
+tse = tse[, tse$time == 0]
+# Re-code the bmi group
+tse$bmi = recode(tse$bmi_group,
+                 obese = "obese",
+                 severeobese = "obese",
+                 morbidobese = "obese")
+# Subset to lean, overweight, and obese subjects
+tse = tse[, tse$bmi %in% c("lean", "overweight", "obese")]
+# Note that by default, levels of a categorical variable in R are sorted alphabetically. In this case, the reference level 
+#for `bmi` will be `lean`. To manually change the reference level, for instance, setting `obese`as the reference level, use:
+tse$bmi = factor(tse$bmi, levels = c("obese", "overweight", "lean"))
+# You can verify the change by checking:
+# levels(sample_data(tse)$bmi)
+# Create the region variable
+tse$region = recode(as.character(tse$nationality),
+                    Scandinavia = "NE", UKIE = "NE", SouthEurope = "SE", 
+                    CentralEurope = "CE", EasternEurope = "EE",
+                    .missing = "unknown")
+# Discard "EE" as it contains only 1 subject
+# Discard subjects with missing values of region
+tse = tse[, ! tse$region %in% c("EE", "unknown")]
+print(tse)
+out = ancombc(data = tse, assay_name = "counts", 
+              tax_level = "Family", # phyloseq = NULL, 
+              formula = "age + region + bmi", 
+              p_adj_method = "holm", prv_cut = 0.10, lib_cut = 1000, 
+              group = "bmi", struc_zero = TRUE, neg_lb = TRUE, tol = 1e-5, 
+              max_iter = 100, conserve = TRUE, alpha = 0.05, global = TRUE,
+              n_cl = 1, verbose = TRUE)
+res = out$res
+res_global = out$res_global
+#primary result
+tab_lfc = res$lfc
+col_name = c("Taxon", "Intercept", "Age", "NE - CE", "SE - CE", 
+             "US - CE", "Overweight - Obese", "Lean - Obese")
+colnames(tab_lfc) = col_name
+tab_lfc %>% 
+  datatable(caption = "Log Fold Changes from the Primary Result") %>%
+  formatRound(col_name[-1], digits = 2)
+#visualize age
+df_lfc = data.frame(res$lfc[, -1] * res$diff_abn[, -1], check.names = FALSE) %>% #gets rid of taxon col for lfc and diff_abn
+  mutate(taxon_id = res$diff_abn$taxon) %>% #taxon at end instead, renames taxon_id
+  dplyr::select(taxon_id, everything()) #puts taxon back in front?
+df_se = data.frame(res$se[, -1] * res$diff_abn[, -1], check.names = FALSE) %>% 
+  mutate(taxon_id = res$diff_abn$taxon) %>%
+  dplyr::select(taxon_id, everything())
+colnames(df_se)[-1] = paste0(colnames(df_se)[-1], "SE") #renames Standard error columns to have "SE" on end
 
+df_fig_age = df_lfc %>% 
+  dplyr::left_join(df_se, by = "taxon_id") %>% #joins lfc with se dfs
+  dplyr::transmute(taxon_id, age, ageSE) %>% #subsets just the age var (had bmi, region before)
+  dplyr::filter(age != 0) %>% #subsets taxon with a lfc != 0 for age
+  dplyr::arrange(desc(age)) %>% #arranges in decr lfc order for age
+  dplyr::mutate(direct = ifelse(age > 0, "Positive LFC", "Negative LFC")) #adds qualifier col (pos/neg LFC)
+df_fig_age$taxon_id = factor(df_fig_age$taxon_id, levels = df_fig_age$taxon_id) #make taxon a factor
+df_fig_age$direct = factor(df_fig_age$direct, 
+                           levels = c("Positive LFC", "Negative LFC")) #also makes 'direct' col (pos/neg LFC) factor
+p_age = ggplot(data = df_fig_age, 
+               aes(x = taxon_id, y = age, fill = direct, color = direct)) + #x factor(taxon), y LFC for age, color = pos/neg
+  geom_bar(stat = "identity", width = 0.7, 
+           position = position_dodge(width = 0.4)) +
+  geom_errorbar(aes(ymin = age - ageSE, ymax = age + ageSE), width = 0.2,
+                position = position_dodge(0.05), color = "black") + #error bars as ageSE
+  labs(x = NULL, y = "Log fold change", 
+       title = "Log fold changes as one unit increase of age") + 
+  scale_fill_discrete(name = NULL) +
+  scale_color_discrete(name = NULL) +
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5),
+        panel.grid.minor.y = element_blank(),
+        axis.text.x = element_text(angle = 60, hjust = 1))
+
+#visualize bmi
+df_fig_bmi = df_lfc %>% 
+  filter(bmioverweight != 0 | bmilean != 0) %>% #filtering for any taxon with !=0 lfc for any bmi comparisons
+  transmute(taxon_id, 
+            `Overweight vs. Obese` = round(bmioverweight, 2),
+            `Lean vs. Obese` = round(bmilean, 2)) %>% #subsetting only bmi cols, renaming col names, rounding to 2 dec
+  pivot_longer(cols = `Overweight vs. Obese`:`Lean vs. Obese`, 
+               names_to = "group", values_to = "value") %>% #for any taxa, separates separate comparisons of bmi into rows
+  arrange(taxon_id)
+lo = floor(min(df_fig_bmi$value)) 
+up = ceiling(max(df_fig_bmi$value))
+mid = (lo + up)/2 #rounding value(lfc) + averaging the up/down? 
+p_bmi = df_fig_bmi %>%
+  ggplot(aes(x = group, y = taxon_id, fill = value)) + #x comparison group, y taxon, fill = lfc value
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       na.value = "white", midpoint = mid, limit = c(lo, up),
+                       name = NULL) +
+  geom_text(aes(group, taxon_id, label = value), color = "black", size = 4) +
+  labs(x = NULL, y = NULL, title = "Log fold changes as compared to obese subjects") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+###try ancombc with own data, agglomerage at order level to start
+
+mzg_raw %>% subset_taxa(Phylum!="Echinodermata") %>% subset_taxa(Phylum !="Bryozoa") %>% 
+  subset_taxa(Phylum !="Sipuncula") %>% subset_taxa(Phylum !="Nemertea") %>%
+  subset_taxa(Phylum !="Platyhelminthes") %>% subset_taxa(Phylum !="Rotifera") %>% 
+  subset_taxa(Order!="Scleractinia") %>% filter_taxa(function(x) sum(x > 0) > 1, TRUE) -> mzg_filt_unnorm 
+sample_data(mzg_filt_unnorm)$WaterType = factor(sample_data(mzg_filt_unnorm)$WaterType, levels = c("Subantarctic", "Subtropical"))
+sample_data(mzg_filt_unnorm)$MinSize = factor(sample_data(mzg_filt_unnorm)$MinSize, levels = c("2", "5", "1"))
+
+out <- ancombc(data = mzg_filt_unnorm, taxa_are_rows = FALSE, tax_level = "Order",
+               formula = "WaterType + MinSize", group = "WaterType",
+               p_adj_method = "fdr")
+res = out$res
+#res_global = out$res_global
+#primary result
+tab_lfc = res$lfc
+col_name = c("Taxon", "Intercept", "ST-SA", "05-02", "1-02")
+colnames(tab_lfc) = col_name
+tab_lfc %>% 
+  datatable(caption = "Log Fold Changes from the Primary Result") %>%
+  formatRound(col_name[-1], digits = 2)
+
+#plot -- age plot
+#visualize age
+df_lfc = data.frame(res$lfc[, -1] * res$diff_abn[, -1], check.names = FALSE) %>% #gets rid of taxon col for lfc and diff_abn
+  mutate(taxon_id = res$diff_abn$taxon) %>% #taxon at end instead, renames taxon_id
+  dplyr::select(taxon_id, everything()) #puts taxon back in front?
+df_se = data.frame(res$se[, -1] * res$diff_abn[, -1], check.names = FALSE) %>% 
+  mutate(taxon_id = res$diff_abn$taxon) %>%
+  dplyr::select(taxon_id, everything())
+colnames(df_se)[-1] = paste0(colnames(df_se)[-1], "SE") #renames Standard error columns to have "SE" on end
+
+df_fig_age = df_lfc %>% 
+  dplyr::left_join(df_se, by = "taxon_id") %>% #joins lfc with se dfs
+  dplyr::transmute(taxon_id, WaterTypeSubtropical, WaterTypeSubtropicalSE) %>% #subsets just the age var (had bmi, region before)
+  dplyr::filter(WaterTypeSubtropical != 0) %>% #subsets taxon with a lfc != 0 for age
+  dplyr::arrange(desc(WaterTypeSubtropical)) %>% #arranges in decr lfc order for age
+  dplyr::mutate(direct = ifelse(WaterTypeSubtropical > 0, "Positive LFC", "Negative LFC")) #adds qualifier col (pos/neg LFC)
+df_fig_age$taxon_id = factor(df_fig_age$taxon_id, levels = df_fig_age$taxon_id) #make taxon a factor
+df_fig_age$direct = factor(df_fig_age$direct, 
+                           levels = c("Positive LFC", "Negative LFC")) #also makes 'direct' col (pos/neg LFC) factor
+ggplot(data = df_fig_age, 
+               aes(x = taxon_id, y = WaterTypeSubtropical, fill = direct, color = direct)) + #x factor(taxon), y LFC for age, color = pos/neg
+  geom_bar(stat = "identity", width = 0.7, 
+           position = position_dodge(width = 0.4)) +
+  geom_errorbar(aes(ymin = WaterTypeSubtropical - WaterTypeSubtropicalSE, ymax = WaterTypeSubtropical + WaterTypeSubtropicalSE), width = 0.2,
+                position = position_dodge(0.05), color = "black") + #error bars as ageSE
+  labs(x = NULL, y = "Log fold change", 
+       title = "Log fold changes in ST referenced to SA") + 
+  scale_fill_discrete(name = NULL) +
+  scale_color_discrete(name = NULL) +
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5),
+        panel.grid.minor.y = element_blank(),
+        axis.text.x = element_text(angle = 60, hjust = 1))
+
+#visualize bmi
+df_fig_bmi = df_lfc %>% 
+  filter(WaterTypeSubtropical != 0) %>% #filtering for any taxon with !=0 lfc for any bmi comparisons
+  transmute(taxon_id, 
+            `ST vs. SA` = round(WaterTypeSubtropical, 2)) %>% #subsetting only bmi cols, renaming col names, rounding to 2 dec
+  pivot_longer(cols = `ST vs. SA`, 
+               names_to = "group", values_to = "value") %>% #for any taxa, separates separate comparisons of bmi into rows
+  arrange(taxon_id)
+lo = floor(min(df_fig_bmi$value)) 
+up = ceiling(max(df_fig_bmi$value))
+mid = (lo + up)/2 #rounding value(lfc) + averaging the up/down? 
+p_bmi = df_fig_bmi %>%
+  ggplot(aes(x = group, y = taxon_id, fill = value)) + #x comparison group, y taxon, fill = lfc value
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       na.value = "white", midpoint = mid, limit = c(lo, up),
+                       name = NULL) +
+  geom_text(aes(group, taxon_id, label = value), color = "black", size = 4) +
+  labs(x = NULL, y = NULL, title = "Log fold changes as compared to SA waters") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
 
 
 

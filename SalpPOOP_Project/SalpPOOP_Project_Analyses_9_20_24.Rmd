@@ -16,7 +16,11 @@ library(phyloseq)
 library(ggplot2)
 library(ggbiplot)
 library(factoextra)
-library(DESeq2)
+#library(DESeq2)
+if (!require("BiocManager", quietly = TRUE)){
+    install.packages("BiocManager")
+}
+library(ANCOMBC)
 
 #Functions ----
 
@@ -29,6 +33,103 @@ want salpPOOP_mzg_meta/otu/tax
 mzgps #12771 taxa, 196 samples, 9 tax ranks
 sum(sample_sums(mzgps)) #10006100
 
+#read in finalized mzg phyloseq object from old computer so can keep running code on this new mac (filtered, normalized...)
+path = "/Users/hbudroe/Desktop/UGA/hbudroe repository/SalpPOOP_Project/Phyloseq_Data/"
+
+mzgps_otu = read.csv(paste0(path, "mzg_otu_ps.csv"))
+mzgps_tax = read.csv(paste0(path, "mzg_tax_ps.csv"))
+mzgps_meta = read.csv(paste0(path, "mzg_meta_ps.csv"))
+
+###reformat (index) otus, tax table, meta
+mzgps_otu %>% as.data.frame() -> otu
+row.names(otu) <- otu$X
+otu$X <- NULL #get rid of the extra taxID column now
+mzgps_tax %>% as.data.frame() -> tax
+rownames(tax) <- tax$X
+tax$X <- NULL
+mzgps_meta %>% as.data.frame() -> meta
+rownames(meta) <- meta$X
+meta$X <- NULL
+
+#make phyloseq object
+physeq_otups <- otu_table(otu, taxa_are_rows = F) #had T earlier but didn't match
+tax %>% as.matrix() %>% tax_table() -> physeq_taxps #if don't then changes hash index
+physeq_metaps <- sample_data(meta)
+mzg_raw <- phyloseq(physeq_otups, physeq_taxps, physeq_metaps)
+
+#species accum
+sp_accum_mzg_raw <- specaccum(otu_table(mzg_raw), method = "random")
+plot(sp_accum_mzg_raw, col = "cadetblue1", ylab = "#ASVs (10³)", 
+     xlab = "#Samples", ci.type="poly", lwd=2, ylim= c(1, length(otu_table(mzg_raw))/100), 
+     ci.lty=0, ci.col=alpha("cadetblue1", alpha = 0.2), cex.axis=0.6) #divide by 100 since 2mil is too high don't see curve
+
+#do spec by various sample types
+mzg_epi <- subset_samples(mzg_raw, DepthZone == "Epipelagic")
+mzg_meso <- subset_samples(mzg_raw, DepthZone == "Mesopelagic")
+sp_accum_mzg_epi <- specaccum(otu_table(mzg_epi), method = "random")
+sp_accum_mzg_meso <- specaccum(otu_table(mzg_meso), method = "random")
+#plot the accumulation curves
+pdf("specaccum", width=3.5, height=4) #default from code
+plot(sp_accum_mzg_epi, col = "cadetblue1", ylab = "#ASVs (10³)", 
+     xlab = "#Samples", ci.type="poly", lwd=2, ylim= c(1,10000), 
+     ci.lty=0, ci.col=alpha("cadetblue1", alpha = 0.2), cex.axis=0.6) #have to change data name + ylim
+lines(sp_accum_mzg_meso, col = "darkgoldenrod1", ci.type="poly", lwd=2, ci.lty=0, ci.col=alpha("darkgoldenrod1", alpha = 0.2))
+#lines(sp_accum_gp_skin, col = "blue4", ci.type="poly", lwd=2, ci.lty=0, ci.col=alpha("blue4", alpha = 0.2))
+dev.off()
+
+#do spec by various sample types ~ sa v st
+mzg_sa <- subset_samples(mzg_raw, WaterType == "Subantarctic")
+mzg_st <- subset_samples(mzg_raw, WaterType == "Subtropical")
+sp_accum_mzg_sa <- specaccum(otu_table(mzg_sa), method = "random")
+sp_accum_mzg_st <- specaccum(otu_table(mzg_st), method = "random")
+#plot the accumulation curves
+pdf("specaccum", width=3.5, height=4) #default from code
+plot(sp_accum_mzg_epi, col = "cadetblue1", ylab = "#ASVs (10³)", 
+     xlab = "#Samples", ci.type="poly", lwd=2, ylim= c(1,10000), 
+     ci.lty=0, ci.col=alpha("cadetblue1", alpha = 0.2), cex.axis=0.6) #have to change data name + ylim
+lines(sp_accum_mzg_meso, col = "darkgoldenrod1", ci.type="poly", lwd=2, ci.lty=0, ci.col=alpha("darkgoldenrod1", alpha = 0.2))
+#lines(sp_accum_gp_skin, col = "blue4", ci.type="poly", lwd=2, ci.lty=0, ci.col=alpha("blue4", alpha = 0.2))
+dev.off()
+
+#do spec by various sample types ~ salp nsalp
+mzg_salp <- subset_samples(mzg_raw, SalpType == "Salp")
+mzg_no <- subset_samples(mzg_raw, SalpType == "Non-Salp")
+sp_accum_mzg_salp <- specaccum(otu_table(mzg_salp), method = "random")
+sp_accum_mzg_no <- specaccum(otu_table(mzg_no), method = "random")
+#plot the accumulation curves
+pdf("specaccum", width=3.5, height=4) #default from code
+plot(sp_accum_mzg_salp, col = "cadetblue1", ylab = "#ASVs (10³)", 
+     xlab = "#Samples", ci.type="poly", lwd=2, ylim= c(1,10000), 
+     ci.lty=0, ci.col=alpha("cadetblue1", alpha = 0.2), cex.axis=0.6) #have to change data name + ylim
+lines(sp_accum_mzg_no, col = "darkgoldenrod1", ci.type="poly", lwd=2, ci.lty=0, ci.col=alpha("darkgoldenrod1", alpha = 0.2))
+#lines(sp_accum_gp_skin, col = "blue4", ci.type="poly", lwd=2, ci.lty=0, ci.col=alpha("blue4", alpha = 0.2))
+dev.off()
+
+#do spec by various sample types ~ cycle
+mzg_1 <- subset_samples(mzg_raw, ID == "SA1")
+mzg_2 <- subset_samples(mzg_raw, ID == "SA2")
+mzg_5 <- subset_samples(mzg_raw, ID == "SA3")
+mzg_3 <- subset_samples(mzg_raw, ID == "ST1")
+mzg_4 <- subset_samples(mzg_raw, ID == "ST2")
+sp_accum_mzg_1 <- specaccum(otu_table(mzg_1), method = "random")
+sp_accum_mzg_2 <- specaccum(otu_table(mzg_2), method = "random")
+sp_accum_mzg_5 <- specaccum(otu_table(mzg_5), method = "random")
+sp_accum_mzg_3 <- specaccum(otu_table(mzg_3), method = "random")
+sp_accum_mzg_4 <- specaccum(otu_table(mzg_4), method = "random")
+#plot the accumulation curves
+pdf("specaccum", width=3.5, height=4) #default from code
+plot(sp_accum_mzg_1, col = "red", ylab = "#ASVs (10³)", 
+     xlab = "#Samples", ci.type="poly", lwd=2, ylim= c(1,10000), 
+     ci.lty=0, ci.col=alpha("red", alpha = 0.2), cex.axis=0.6) #have to change data name + ylim
+lines(sp_accum_mzg_2, col = "orange", ci.type="poly", lwd=2, ci.lty=0, ci.col=alpha("orange", alpha = 0.2))
+lines(sp_accum_mzg_5, col = "darkgoldenrod1", ci.type="poly", lwd=2, ci.lty=0, ci.col=alpha("darkgoldenrod1", alpha = 0.2))
+lines(sp_accum_mzg_3, col = "green4", ci.type="poly", lwd=2, ci.lty=0, ci.col=alpha("green4", alpha = 0.2))
+lines(sp_accum_mzg_4, col = "blue4", ci.type="poly", lwd=2, ci.lty=0, ci.col=alpha("blue4", alpha = 0.2))
+dev.off()
+```
+
+Read in usable mzg object
+```{r}
 #read in finalized mzg phyloseq object from old computer so can keep running code on this new mac (filtered, normalized...)
 path = "/Users/hbudroe/Desktop/UGA/hbudroe repository/SalpPOOP_Project/Phyloseq_Data/"
 
@@ -315,17 +416,33 @@ plot_ordination(mzg,ord,type="samples")+  #,color="WaterType",shape="DepthZone"
 ```
 
 ###Section 4 (Drivers of community) ----
-#Figure 4a: DESeq2
-need to go back and redo DESeq2 on initially unnormalized data <- go back and find filterin but before norm
+Was doing DESeq2 but switch to ANCOM-BC
 ```{r}
-mzg %>% filter_taxa(function(x) sum(x > 0) > 1, TRUE)->deseqps
+mzg_raw %>% subset_taxa(Phylum!="Echinodermata") %>% subset_taxa(Phylum !="Bryozoa") %>% 
+  subset_taxa(Phylum !="Sipuncula") %>% subset_taxa(Phylum !="Nemertea") %>%
+  subset_taxa(Phylum !="Platyhelminthes") %>% subset_taxa(Phylum !="Rotifera") %>% subset_taxa(Order!="Scleractinia") %>% filter_taxa(function(x) sum(x > 0) > 1, TRUE) -> mzg_filt_unnorm #764 #9156882 reads summed
+
+
+```
+
+
+```{r}
+mzg_raw %>% subset_taxa(Phylum!="Echinodermata") %>% subset_taxa(Phylum !="Bryozoa") %>% 
+  subset_taxa(Phylum !="Sipuncula") %>% subset_taxa(Phylum !="Nemertea") %>%
+  subset_taxa(Phylum !="Platyhelminthes") %>% subset_taxa(Phylum !="Rotifera") %>% subset_taxa(Order!="Scleractinia") %>% filter_taxa(function(x) sum(x > 0) > 1, TRUE) -> deseqps #764 #9156882 reads summed
+
+
 otu_table(deseqps)=otu_table(deseqps)+1
 diagdds = phyloseq_to_deseq2(deseqps, ~ WaterType)
-diagdds = DESeq(diagdds, test="Wald", fitType="mean")
+diagdds = DESeq(diagdds, test="Wald", fitType="mean") #fit type parametric didn't capture dispersion trend -> told to do local or mean
 res = results(diagdds, cooksCutoff = FALSE)
 alpha = 0.01
 sigtab = res[which(res$padj < alpha), ]
 sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(deseqps)[rownames(sigtab), ], "matrix"))
+#summary of comparison, shows which group +/-
+summary(res)
+res
+
 
 #Add watermass so can plot
 sigtab$WaterType=0
@@ -345,18 +462,21 @@ theme_set(theme_bw())
 scale_fill_discrete <- function(palname = "Set1", ...) {
   scale_fill_brewer(palette = palname, ...)
 }
-#summary of comparison, shows which group +/-
-summary(res)
-res
+
+
+
+
+
+
 
 #plot 
 x = tapply(sigtab$log2FoldChange, sigtab$Class, function(x) max(x))
 x = sort(x, TRUE)
-sigtab$Order = factor(as.character(sigtab$Class), levels=names(x))
+sigtab$Class = factor(as.character(sigtab$Class), levels=names(x))
 # Genus order -- tried family
 x = tapply(sigtab$log2FoldChange, sigtab$Family, function(x) max(x))
 x = sort(x, TRUE)
-sigtab$Genus = factor(as.character(sigtab$Family), levels=names(x))
+sigtab$Genus = factor(as.character(sigtab$Genus), levels=names(x))
 ggplot(sigtab, aes(x=Family, y=log2FoldChange, color=Family)) + geom_point(size=6,alpha=.8) + 
   theme( #axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5
     axis.text.x=element_blank(),  #remove y axis labels
