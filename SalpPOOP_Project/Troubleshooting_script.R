@@ -12,6 +12,8 @@ library(phyloseq)
 devtools::install_github("houyunhuang/ggcor")
 library(ANCOMBC)
 library(DT)
+library(knitr)
+library(kableExtra)
 
 #Easy data to use - phyloseq GlobalPatterns
 data("GlobalPatterns")
@@ -202,6 +204,11 @@ out <- ancombc(data = mzg_filt_unnorm, taxa_are_rows = FALSE, tax_level = "Order
                formula = "WaterType + MinSize", group = "WaterType",
                p_adj_method = "fdr")
 res = out$res
+
+#make a table with results
+knitr::kable(res$diff_abn) %>% kableExtra::kable_styling("striped") %>% 
+  kableExtra::scroll_box(width = "100%")
+
 #res_global = out$res_global
 #primary result
 tab_lfc = res$lfc
@@ -230,6 +237,7 @@ df_fig_age = df_lfc %>%
 df_fig_age$taxon_id = factor(df_fig_age$taxon_id, levels = df_fig_age$taxon_id) #make taxon a factor
 df_fig_age$direct = factor(df_fig_age$direct, 
                            levels = c("Positive LFC", "Negative LFC")) #also makes 'direct' col (pos/neg LFC) factor
+group_colors <- c("Negative LFC"= "#56B4E9", "Positive LFC" = "#E69F00")
 ggplot(data = df_fig_age, 
                aes(x = taxon_id, y = WaterTypeSubtropical, fill = direct, color = direct)) + #x factor(taxon), y LFC for age, color = pos/neg
   geom_bar(stat = "identity", width = 0.7, 
@@ -238,12 +246,15 @@ ggplot(data = df_fig_age,
                 position = position_dodge(0.05), color = "black") + #error bars as ageSE
   labs(x = NULL, y = "Log fold change", 
        title = "Log fold changes in ST referenced to SA") + 
-  scale_fill_discrete(name = NULL) +
-  scale_color_discrete(name = NULL) +
+  scale_colour_manual(values=group_colors)+ #this adds colors according to group
+  scale_fill_manual(values= group_colors)+
+  #scale_fill_discrete(name = NULL) +
+  #scale_color_discrete(name = NULL) +
   theme_bw() + 
   theme(plot.title = element_text(hjust = 0.5),
         panel.grid.minor.y = element_blank(),
-        axis.text.x = element_text(angle = 60, hjust = 1))
+        axis.text.x = element_text(angle = 60, hjust = 1))+
+  guides(fill = guide_legend(title = "LFC"), color = "none")
 
 #visualize bmi
 df_fig_bmi = df_lfc %>% 
@@ -256,7 +267,7 @@ df_fig_bmi = df_lfc %>%
 lo = floor(min(df_fig_bmi$value)) 
 up = ceiling(max(df_fig_bmi$value))
 mid = (lo + up)/2 #rounding value(lfc) + averaging the up/down? 
-p_bmi = df_fig_bmi %>%
+df_fig_bmi %>%
   ggplot(aes(x = group, y = taxon_id, fill = value)) + #x comparison group, y taxon, fill = lfc value
   geom_tile(color = "black") +
   scale_fill_gradient2(low = "blue", high = "red", mid = "white", 

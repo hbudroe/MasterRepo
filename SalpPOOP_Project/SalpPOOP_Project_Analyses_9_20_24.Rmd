@@ -16,11 +16,8 @@ library(phyloseq)
 library(ggplot2)
 library(ggbiplot)
 library(factoextra)
-#library(DESeq2)
-if (!require("BiocManager", quietly = TRUE)){
-    install.packages("BiocManager")
-}
 library(ANCOMBC)
+library(indicspecies)
 
 #Functions ----
 
@@ -57,75 +54,6 @@ tax %>% as.matrix() %>% tax_table() -> physeq_taxps #if don't then changes hash 
 physeq_metaps <- sample_data(meta)
 mzg_raw <- phyloseq(physeq_otups, physeq_taxps, physeq_metaps)
 
-#species accum
-sp_accum_mzg_raw <- specaccum(otu_table(mzg_raw), method = "random")
-plot(sp_accum_mzg_raw, col = "cadetblue1", ylab = "#ASVs (10³)", 
-     xlab = "#Samples", ci.type="poly", lwd=2, ylim= c(1, length(otu_table(mzg_raw))/100), 
-     ci.lty=0, ci.col=alpha("cadetblue1", alpha = 0.2), cex.axis=0.6) #divide by 100 since 2mil is too high don't see curve
-
-#do spec by various sample types
-mzg_epi <- subset_samples(mzg_raw, DepthZone == "Epipelagic")
-mzg_meso <- subset_samples(mzg_raw, DepthZone == "Mesopelagic")
-sp_accum_mzg_epi <- specaccum(otu_table(mzg_epi), method = "random")
-sp_accum_mzg_meso <- specaccum(otu_table(mzg_meso), method = "random")
-#plot the accumulation curves
-pdf("specaccum", width=3.5, height=4) #default from code
-plot(sp_accum_mzg_epi, col = "cadetblue1", ylab = "#ASVs (10³)", 
-     xlab = "#Samples", ci.type="poly", lwd=2, ylim= c(1,10000), 
-     ci.lty=0, ci.col=alpha("cadetblue1", alpha = 0.2), cex.axis=0.6) #have to change data name + ylim
-lines(sp_accum_mzg_meso, col = "darkgoldenrod1", ci.type="poly", lwd=2, ci.lty=0, ci.col=alpha("darkgoldenrod1", alpha = 0.2))
-#lines(sp_accum_gp_skin, col = "blue4", ci.type="poly", lwd=2, ci.lty=0, ci.col=alpha("blue4", alpha = 0.2))
-dev.off()
-
-#do spec by various sample types ~ sa v st
-mzg_sa <- subset_samples(mzg_raw, WaterType == "Subantarctic")
-mzg_st <- subset_samples(mzg_raw, WaterType == "Subtropical")
-sp_accum_mzg_sa <- specaccum(otu_table(mzg_sa), method = "random")
-sp_accum_mzg_st <- specaccum(otu_table(mzg_st), method = "random")
-#plot the accumulation curves
-pdf("specaccum", width=3.5, height=4) #default from code
-plot(sp_accum_mzg_epi, col = "cadetblue1", ylab = "#ASVs (10³)", 
-     xlab = "#Samples", ci.type="poly", lwd=2, ylim= c(1,10000), 
-     ci.lty=0, ci.col=alpha("cadetblue1", alpha = 0.2), cex.axis=0.6) #have to change data name + ylim
-lines(sp_accum_mzg_meso, col = "darkgoldenrod1", ci.type="poly", lwd=2, ci.lty=0, ci.col=alpha("darkgoldenrod1", alpha = 0.2))
-#lines(sp_accum_gp_skin, col = "blue4", ci.type="poly", lwd=2, ci.lty=0, ci.col=alpha("blue4", alpha = 0.2))
-dev.off()
-
-#do spec by various sample types ~ salp nsalp
-mzg_salp <- subset_samples(mzg_raw, SalpType == "Salp")
-mzg_no <- subset_samples(mzg_raw, SalpType == "Non-Salp")
-sp_accum_mzg_salp <- specaccum(otu_table(mzg_salp), method = "random")
-sp_accum_mzg_no <- specaccum(otu_table(mzg_no), method = "random")
-#plot the accumulation curves
-pdf("specaccum", width=3.5, height=4) #default from code
-plot(sp_accum_mzg_salp, col = "cadetblue1", ylab = "#ASVs (10³)", 
-     xlab = "#Samples", ci.type="poly", lwd=2, ylim= c(1,10000), 
-     ci.lty=0, ci.col=alpha("cadetblue1", alpha = 0.2), cex.axis=0.6) #have to change data name + ylim
-lines(sp_accum_mzg_no, col = "darkgoldenrod1", ci.type="poly", lwd=2, ci.lty=0, ci.col=alpha("darkgoldenrod1", alpha = 0.2))
-#lines(sp_accum_gp_skin, col = "blue4", ci.type="poly", lwd=2, ci.lty=0, ci.col=alpha("blue4", alpha = 0.2))
-dev.off()
-
-#do spec by various sample types ~ cycle
-mzg_1 <- subset_samples(mzg_raw, ID == "SA1")
-mzg_2 <- subset_samples(mzg_raw, ID == "SA2")
-mzg_5 <- subset_samples(mzg_raw, ID == "SA3")
-mzg_3 <- subset_samples(mzg_raw, ID == "ST1")
-mzg_4 <- subset_samples(mzg_raw, ID == "ST2")
-sp_accum_mzg_1 <- specaccum(otu_table(mzg_1), method = "random")
-sp_accum_mzg_2 <- specaccum(otu_table(mzg_2), method = "random")
-sp_accum_mzg_5 <- specaccum(otu_table(mzg_5), method = "random")
-sp_accum_mzg_3 <- specaccum(otu_table(mzg_3), method = "random")
-sp_accum_mzg_4 <- specaccum(otu_table(mzg_4), method = "random")
-#plot the accumulation curves
-pdf("specaccum", width=3.5, height=4) #default from code
-plot(sp_accum_mzg_1, col = "red", ylab = "#ASVs (10³)", 
-     xlab = "#Samples", ci.type="poly", lwd=2, ylim= c(1,10000), 
-     ci.lty=0, ci.col=alpha("red", alpha = 0.2), cex.axis=0.6) #have to change data name + ylim
-lines(sp_accum_mzg_2, col = "orange", ci.type="poly", lwd=2, ci.lty=0, ci.col=alpha("orange", alpha = 0.2))
-lines(sp_accum_mzg_5, col = "darkgoldenrod1", ci.type="poly", lwd=2, ci.lty=0, ci.col=alpha("darkgoldenrod1", alpha = 0.2))
-lines(sp_accum_mzg_3, col = "green4", ci.type="poly", lwd=2, ci.lty=0, ci.col=alpha("green4", alpha = 0.2))
-lines(sp_accum_mzg_4, col = "blue4", ci.type="poly", lwd=2, ci.lty=0, ci.col=alpha("blue4", alpha = 0.2))
-dev.off()
 ```
 
 Read in usable mzg object
@@ -162,7 +90,8 @@ sum(sample_sums(mzg)) #9006476
 
 ###Section 1 (Oceanographic Properties) ----
 Fig1a Moira generated in Matlab since she had all the data points
-#Figure 1b: PCA of environmental characteristics
+Figure 1b: PCA of environmental characteristics
+  Figure S1: Plot visualizing variable contributions to principle components
 ```{r}
 env_df <- sample_data(mzg)[,c(17:22)] #define dataframe only containing numericals (did 17:22 potentialtemp:oxygen)
   #doesn't include any biological factors, tow/net/station data ; add in salp type and dielpattern as numeric vectors
@@ -171,14 +100,14 @@ env_df$SalpBloom <-ifelse(sample_data(mzg)$SalpType == "Non-Salp", 0, 1) #night 
 water_type <- sample_data(mzg)$WaterType #create vectors of categories
 depth_zone <- sample_data(mzg)$DepthZone # ^^
 
-pca_mzg <- prcomp(env_df, scale. = TRUE) #do pca
+pca_mzg <- prcomp(env_df, scale. = TRUE) #run pca
 summary(pca_mzg)
 scree_data <- data.frame(
   Component = 1:length(pca_mzg$sdev),
   Variance = pca_mzg$sdev^2 / sum(pca_mzg$sdev^2)
 )
 
-ggplot(scree_data, aes(x = Component, y = Variance)) +
+ggplot(scree_data, aes(x = Component, y = Variance)) +  #plot proportion variance explained by each PC dim (scree plot)
   geom_bar(stat = "identity", fill = "steelblue") +
   geom_line() +
   geom_point() +
@@ -186,12 +115,12 @@ ggplot(scree_data, aes(x = Component, y = Variance)) +
   ylab("Proportion of Variance Explained") +
   ggtitle("Scree Plot")
 
-pca_mzg_vars <- get_pca_var(pca_mzg) #factoextra:: tells how individual vars contrib to each pc
+pca_mzg_vars <- get_pca_var(pca_mzg) #factoextra:: tells how individual vars contribute to each pc dim
 head(pca_mzg_vars$contrib, 7)
-fviz_contrib(pca_mzg, choice = "var", axes = 1, top = 10) #visualizes contribution to pcs
-fviz_contrib(pca_mzg, choice = "var", axes = 2, top = 10) # ^^ pc2
+fviz_contrib(pca_mzg, choice = "var", axes = 1, top = 10) #visualizes contribution to pc1   #FIGURE S1
+fviz_contrib(pca_mzg, choice = "var", axes = 2, top = 10) # ^^ pc2  #FIGURE S1
 
-group_colors <- c(Subantarctic = "#56B4E9", Subtropical = "#E69F00")
+group_colors <- c(Subantarctic = "#56B4E9", Subtropical = "#E69F00") #FIGURE 1B PLOT plot PCA ordination
 ggbiplot(pca_mzg, obs.scale = 1, var.scale = 1)+
   geom_point(aes(color = water_type, shape = depth_zone, size = 2, alpha = 0.3))+
   scale_colour_manual(values=group_colors)+
@@ -204,7 +133,7 @@ ggbiplot(pca_mzg, obs.scale = 1, var.scale = 1)+
 ```
 
 ###Section 2 (Compositional Depth Plots) ----
-#Figure 2a: Total community read/biomass abundance ~depth
+Figure 2a: Total community read/biomass abundance ~depth
 ```{r}
 #add in columns (interval width + depth midpoints) to physeq object
 sample_data(mzg)$BinWidth = sample_data(mzg)$MaxDepth - sample_data(mzg)$MinDepth
@@ -237,7 +166,7 @@ mdf$Biomass[mdf$DielPattern == "Night"] <- mdf$Biomass[mdf$DielPattern == "Night
   geom_hline(yintercept = 0, linewidth = 0.2)+
   facet_grid(~ID, scales="free_x"))
 ```
-#Figure 2b: Order == Calanoid read abundance ~depth 
+Figure 2b: Order == Calanoid read abundance ~depth 
 ```{r}
 #add col for vertical bin sizes (depth) + midpoint (abundance line) - doesn't change with tax
 sample_data(mzg)$BinWidth = sample_data(mzg)$MaxDepth - sample_data(mzg)$MinDepth
@@ -269,7 +198,7 @@ mdf$Biomass[mdf$DielPattern == "Night"] <- mdf$Biomass[mdf$DielPattern == "Night
   geom_hline(yintercept = 0, linewidth = 0.2)+
   facet_grid(~ID, scales="free_x"))
 ```
-#Figure 2c: Class == Malacostraca read abundance ~depth
+Figure 2c: Class == Malacostraca read abundance ~depth
 ```{r}
 #add col for vertical bin sizes (depth) + midpoint (abundance line) - doesn't change with tax
 sample_data(mzg)$BinWidth = sample_data(mzg)$MaxDepth - sample_data(mzg)$MinDepth
@@ -301,7 +230,7 @@ mdf$Biomass[mdf$DielPattern == "Night"] <- mdf$Biomass[mdf$DielPattern == "Night
   geom_hline(yintercept = 0, linewidth = 0.2)+
   facet_grid(~ID, scales="free_x"))
 ```
-#Figure 2d? All GZ read abundance ~depth
+Figure 2d? All GZ read abundance ~depth
 ```{r}
 #add col for vertical bin sizes (depth) + midpoint (abundance line) - doesn't change with tax
 sample_data(mzg)$BinWidth = sample_data(mzg)$MaxDepth - sample_data(mzg)$MinDepth
@@ -333,6 +262,69 @@ mdf$Biomass[mdf$DielPattern == "Night"] <- mdf$Biomass[mdf$DielPattern == "Night
   geom_hline(yintercept = 0, linewidth = 0.2)+
   facet_grid(~ID, scales="free_x"))
 ```
+
+Figure S2: sequence accumulation curve for SA v ST
+  but may be easier to run code in regular R script instead of pdf save since weird
+```{r}
+#species accum
+sp_accum_mzg_raw <- specaccum(otu_table(mzg_raw), method = "random")
+plot(sp_accum_mzg_raw, col = "cadetblue1", ylab = "#ASVs (10³)", 
+     xlab = "#Samples", ci.type="poly", lwd=2, ylim= c(1, length(otu_table(mzg_raw))/100), 
+     ci.lty=0, ci.col=alpha("cadetblue1", alpha = 0.2), cex.axis=0.6) #divide by 100 since 2mil is too high don't see curve
+
+
+#do spec by various sample types ~ sa v st
+mzg_sa <- subset_samples(mzg_raw, WaterType == "Subantarctic")
+mzg_st <- subset_samples(mzg_raw, WaterType == "Subtropical")
+sp_accum_mzg_sa <- specaccum(otu_table(mzg_sa), method = "random")
+sp_accum_mzg_st <- specaccum(otu_table(mzg_st), method = "random")
+#plot the accumulation curves
+pdf("specaccum", width=3.5, height=4) #default from code
+plot(sp_accum_mzg_epi, col = "cadetblue1", ylab = "#ASVs (10³)", 
+     xlab = "#Samples", ci.type="poly", lwd=2, ylim= c(1,10000), 
+     ci.lty=0, ci.col=alpha("cadetblue1", alpha = 0.2), cex.axis=0.6) #have to change data name + ylim
+lines(sp_accum_mzg_meso, col = "darkgoldenrod1", ci.type="poly", lwd=2, ci.lty=0, ci.col=alpha("darkgoldenrod1", alpha = 0.2))
+#lines(sp_accum_gp_skin, col = "blue4", ci.type="poly", lwd=2, ci.lty=0, ci.col=alpha("blue4", alpha = 0.2))
+dev.off()
+```
+
+Figure S3: Depth biomass contribution plot by size fraction
+  can't do read abundances but can show size biomass patterns
+```{r}
+#add in bin parameters
+sample_data(mzg)$BinWidth = sample_data(mzg)$MaxDepth - sample_data(mzg)$MinDepth
+sample_data(mzg)$Midpoint = (sample_data(mzg)$BinWidth/2) + sample_data(mzg)$MinDepth
+
+#Combine size fraction biomass, prune for ease of plotting right now
+mzg %>% sample_data() %>% dplyr::group_by(Net,Tow,Station, MinSize) %>% dplyr::summarise(Biomass=sum(condensedBiomass)) ->mdf1 
+#this part is actually unnecessary but oh well 
+
+#mzg %>% psmelt() -> mdf
+mdf1 %>% right_join(sample_data(mzg)) ->mdf
+disp1 <- max(mdf$Biomass)*6
+mdf$Biomass[mdf$DielPattern == "Night"] <- mdf$Biomass[mdf$DielPattern == "Night"]*-1 
+#mdf$Biomass[mdf$DielPattern == "Night"] <- mdf$Biomass[mdf$DielPattern == "Night"]*-1
+
+mdf$MinSize <- factor(mdf$MinSize, levels = c("2", "5", "1"))
+
+group_colors = c("5" = "#8EE5EE", "2" = "#A2CD5A", "1" = "#6A5ACD")
+(p <- ggplot(mdf, aes(width = BinWidth*.9)) +
+  annotate("rect", xmin = -Inf, xmax = Inf, ymin =  -Inf, ymax = 0, fill = "grey60", alpha = 0.5) +
+  geom_bar(aes(x = Midpoint, y = Biomass, fill = MinSize), stat = "identity") +
+  #geom_point(aes(x = Midpoint, y = Biomass*3000,group=DielPattern)) +
+  #geom_line(aes(x = Midpoint, y = Biomass*3000, group = DielPattern)) +
+  #scale_y_continuous(breaks = scales::pretty_breaks(n = 4), limits = c(-disp1, disp1), labels=abs, sec.axis = sec_axis(~./3000, name = bquote('MOCNESS Biomass '(mgC/m^3)), scales::pretty_breaks(n = 4), labels = abs)) + #define the name of your second axis
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90)) +
+  scale_fill_manual(values = group_colors) + #fill for each species is different, using a rcolorbrewer palette called "Set1"
+  #scale_color_manual(values = "black", name = paste('Zooscan biomass', sep = '')) +# name = bquote(atop('Zooscan Biomass ', (mgC/m^2)))) +  #color for the zooscan biomass is black
+  coord_flip() + 
+  scale_x_reverse() + 
+  labs(x = "Depth (m)", y = bquote('MOCNESS Biomass '(mgC/m^3))) + 
+  geom_hline(yintercept = 0, linewidth = 0.2)+
+  facet_grid(~ID, scales="free_x"))
+```
+
 
 ###Section 3 (Alpha and Beta Diversity) ----
 #Figure 3a: Alpha diversity 
@@ -417,80 +409,246 @@ plot_ordination(mzg,ord,type="samples")+  #,color="WaterType",shape="DepthZone"
 
 ###Section 4 (Drivers of community) ----
 Was doing DESeq2 but switch to ANCOM-BC
+Figure 4: ANCOMBC2 DA agglomerated at genus level
+```{r}
+mzg_raw %>% subset_taxa(Phylum!="Echinodermata") %>% subset_taxa(Phylum !="Bryozoa") %>% #remove meroplankton taxa
+  subset_taxa(Phylum !="Sipuncula") %>% subset_taxa(Phylum !="Nemertea") %>%
+  subset_taxa(Phylum !="Platyhelminthes") %>% subset_taxa(Phylum !="Rotifera") %>% subset_taxa(Order!="Scleractinia") %>%
+  subset_taxa(Order !="Actiniaria") %>%
+  subset_taxa(Order !="Amphinomida") %>%
+  subset_taxa(Order !="Canalipalpata_EXT") %>%
+  subset_taxa(Order !="Cephalaspidea") %>% #decapoda? #leptothecata? idk
+  subset_taxa(Order !="Littorinimorpha") %>% #all these asvs removed retroactively after running ancom the 1st time
+  subset_taxa(Order !="Penicillaria") %>% #and faceted by results decided to remove meros
+  subset_taxa(Order !="Phyllodocida") %>%
+  subset_taxa(Order !="Scolecida_EXT") %>%
+  subset_taxa(Order !="Sedentaria_EXT") %>%
+  subset_taxa(Order !="Spionida") %>%
+  filter_taxa(function(x) sum(x > 0) > 1, TRUE) -> mzg_filt_unnorm 
+sample_data(mzg_filt_unnorm)$WaterType = factor(sample_data(mzg_filt_unnorm)$WaterType, levels = c("Subantarctic", "Subtropical"))
+sample_data(mzg_filt_unnorm)$MinSize = factor(sample_data(mzg_filt_unnorm)$MinSize, levels = c("2", "5", "1"))
+#run ancombc at genus level
+out <- ancombc(data = mzg_filt_unnorm, taxa_are_rows = FALSE, tax_level = "Genus",
+               formula = "WaterType + MinSize", group = "WaterType",
+               p_adj_method = "fdr", alpha = 0.05)
+res = out$res
+tab_lfc = res$lfc
+col_name = c("Taxon", "Intercept", "ST-SA", "05-02", "1-02")
+colnames(tab_lfc) = col_name
+tab_lfc %>% 
+  datatable(caption = "Log Fold Changes from the Primary Result") %>%
+  formatRound(col_name[-1], digits = 2)
+df_lfc = data.frame(res$lfc[, -1] * res$diff_abn[, -1], check.names = FALSE) %>% #gets rid of taxon col for lfc and diff_abn
+  mutate(taxon_id = res$diff_abn$taxon) %>% #taxon at end instead, renames taxon_id
+  dplyr::select(taxon_id, everything()) #puts taxon back in front?
+df_se = data.frame(res$se[, -1] * res$diff_abn[, -1], check.names = FALSE) %>% 
+  mutate(taxon_id = res$diff_abn$taxon) %>%
+  dplyr::select(taxon_id, everything())
+colnames(df_se)[-1] = paste0(colnames(df_se)[-1], "SE") #renames Standard error columns to have "SE" on end
+
+df_fig_age = df_lfc %>% 
+  dplyr::left_join(df_se, by = "taxon_id") %>% #joins lfc with se dfs
+  dplyr::transmute(taxon_id, WaterTypeSubtropical, WaterTypeSubtropicalSE) %>% #subsets just the age var (had bmi, region before)
+  dplyr::filter(WaterTypeSubtropical != 0) %>% #subsets taxon with a lfc != 0 for age
+  dplyr::arrange(desc(WaterTypeSubtropical)) %>% #arranges in decr lfc order for age
+  dplyr::mutate(direct = ifelse(WaterTypeSubtropical > 0, "Positive LFC", "Negative LFC")) #adds qualifier col (pos/neg LFC)
+df_fig_age$taxon_id = factor(df_fig_age$taxon_id, levels = df_fig_age$taxon_id) #make taxon a factor
+df_fig_age$direct = factor(df_fig_age$direct, 
+                           levels = c("Positive LFC", "Negative LFC")) #also makes 'direct' col (pos/neg LFC) factor
+group_colors <- c("Negative LFC"= "#56B4E9", "Positive LFC" = "#E69F00")
+ggplot(data = df_fig_age, 
+               aes(x = taxon_id, y = WaterTypeSubtropical, fill = direct, color = direct)) + #x factor(taxon), y LFC for age, color = pos/neg
+  geom_bar(stat = "identity", width = 0.7, 
+           position = position_dodge(width = 0.4)) +
+  geom_errorbar(aes(ymin = WaterTypeSubtropical - WaterTypeSubtropicalSE, ymax = WaterTypeSubtropical + WaterTypeSubtropicalSE), width = 0.2,
+                position = position_dodge(0.05), color = "black") + #error bars as ageSE
+  labs(x = NULL, y = "Log fold change", 
+       title = "Log fold changes for ST compared to SA") + 
+  scale_colour_manual(values=group_colors)+ #this adds colors according to group
+  scale_fill_manual(values= group_colors)+
+  #scale_fill_discrete(name = NULL) +
+  #scale_color_discrete(name = NULL) +
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5),
+        panel.grid.minor.y = element_blank(),
+        axis.text.x = element_text(angle = 60, hjust = 1))+
+  guides(fill = guide_legend(title = "LogFoldChange"), color = "none")+
+  labs(x = "Genus")
+```
+
+Figure S3: ancom @ asv level -
 ```{r}
 mzg_raw %>% subset_taxa(Phylum!="Echinodermata") %>% subset_taxa(Phylum !="Bryozoa") %>% 
   subset_taxa(Phylum !="Sipuncula") %>% subset_taxa(Phylum !="Nemertea") %>%
-  subset_taxa(Phylum !="Platyhelminthes") %>% subset_taxa(Phylum !="Rotifera") %>% subset_taxa(Order!="Scleractinia") %>% filter_taxa(function(x) sum(x > 0) > 1, TRUE) -> mzg_filt_unnorm #764 #9156882 reads summed
+  subset_taxa(Phylum !="Platyhelminthes") %>% subset_taxa(Phylum !="Rotifera") %>% subset_taxa(Order!="Scleractinia") %>%
+  subset_taxa(Order !="Actiniaria") %>%
+  subset_taxa(Order !="Amphinomida") %>%
+  subset_taxa(Order !="Canalipalpata_EXT") %>%
+  subset_taxa(Order !="Cephalaspidea") %>% #decapoda? #leptothecata? idk
+  subset_taxa(Order !="Littorinimorpha") %>% #all these asvs removed retroactively after running ancom the 1st time
+  subset_taxa(Order !="Penicillaria") %>% #and faceted by results decided to remove meros
+  subset_taxa(Order !="Phyllodocida") %>%
+  subset_taxa(Order !="Scolecida_EXT") %>%
+  subset_taxa(Order !="Sedentaria_EXT") %>%
+  subset_taxa(Order !="Spionida") %>%
+  filter_taxa(function(x) sum(x > 0) > 1, TRUE) -> mzg_filt_unnorm 
+sample_data(mzg_filt_unnorm)$WaterType = factor(sample_data(mzg_filt_unnorm)$WaterType, levels = c("Subantarctic", "Subtropical"))
+sample_data(mzg_filt_unnorm)$MinSize = factor(sample_data(mzg_filt_unnorm)$MinSize, levels = c("2", "5", "1"))
+
+#reformat tax
+tax_table(mzg_filt_unnorm) %>% data.frame() %>% rownames_to_column(var = "taxon_id") -> taxstrings
+taxstrings$taxon <- make.unique(paste0(taxstrings$Order, "_", taxstrings$Family, "_", taxstrings$Genus, "_", taxstrings$Species))
+taxstrings <- taxstrings[, names(taxstrings) %in% c("taxon_id", "taxon", "Order", "Family")]
+
+#run ancombc for unique ASVs
+out <- ancombc(data = mzg_filt_unnorm, taxa_are_rows = FALSE,
+               formula = "WaterType + MinSize", group = "WaterType",
+               p_adj_method = "fdr", alpha = 0.05)
+res = out$res
+tab_lfc = res$lfc
+col_name = c("Taxon", "Intercept", "ST-SA", "05-02", "1-02")
+colnames(tab_lfc) = col_name
+tab_lfc %>% 
+  datatable(caption = "Log Fold Changes from the Primary Result") %>%
+  formatRound(col_name[-1], digits = 2)
+df_lfc = data.frame(res$lfc[, -1] * res$diff_abn[, -1], check.names = FALSE) %>% #gets rid of taxon col for lfc and diff_abn
+  mutate(taxon_id = res$diff_abn$taxon) %>% #taxon at end instead, renames taxon_id
+  dplyr::select(taxon_id, everything()) #puts taxon back in front?
+df_se = data.frame(res$se[, -1] * res$diff_abn[, -1], check.names = FALSE) %>% 
+  mutate(taxon_id = res$diff_abn$taxon) %>%
+  dplyr::select(taxon_id, everything())
+colnames(df_se)[-1] = paste0(colnames(df_se)[-1], "SE") #renames Standard error columns to have "SE" on end
+
+df_fig_age = df_lfc %>% 
+  dplyr::left_join(df_se, by = "taxon_id") %>% #joins lfc with se dfs
+  dplyr::transmute(taxon_id, WaterTypeSubtropical, WaterTypeSubtropicalSE) %>% #subsets just the age var (had bmi, region before)
+  dplyr::filter(WaterTypeSubtropical != 0) %>% #subsets taxon with a lfc != 0 for age
+  dplyr::arrange(desc(WaterTypeSubtropical)) %>% #arranges in decr lfc order for age
+  dplyr::mutate(direct = ifelse(WaterTypeSubtropical > 0, "Positive LFC", "Negative LFC")) #adds qualifier col (pos/neg LFC)
+df_fig_age %>% left_join(taxstrings) %>% select(-"taxon_id") %>% rename("taxon_id" = "taxon") -> df_fig_age #add in taxstring for asv
+df_fig_age$taxon_id = factor(df_fig_age$taxon_id, levels = df_fig_age$taxon_id) #make taxon a factor
+df_fig_age$direct = factor(df_fig_age$direct, 
+                           levels = c("Positive LFC", "Negative LFC")) #also makes 'direct' col (pos/neg LFC) factor
+group_colors <- c("Negative LFC"= "#56B4E9", "Positive LFC" = "#E69F00")
+ggplot(data = df_fig_age, 
+               aes(x = taxon_id, y = WaterTypeSubtropical, fill = direct, color = direct)) + #x factor(taxon), y LFC for age, colored
+  geom_bar(stat = "identity", width = 0.7, 
+           position = position_dodge(width = 0.4)) +
+  geom_errorbar(aes(ymin = WaterTypeSubtropical - WaterTypeSubtropicalSE, ymax = WaterTypeSubtropical + WaterTypeSubtropicalSE), width = 0.2,
+                position = position_dodge(0.05), color = "black") + #error bars as ageSE
+  labs(x = NULL, y = "Log fold change", 
+       title = "Log fold changes for ST compared to SA") + 
+  scale_colour_manual(values=group_colors)+ #this adds colors according to group
+  scale_fill_manual(values= group_colors)+
+  #scale_fill_discrete(name = NULL) +
+  #scale_color_discrete(name = NULL) +
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5),
+        panel.grid.minor.y = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())+ #element_text(angle = 60, hjust = 1) #blank gets rid of labels so can see pattern
+  guides(fill = guide_legend(title = "LogFoldChange"), color = "none")+
+  labs(x = "ASVs")+
+  facet_wrap(~Family, scales = "free_x")
+
 
 
 ```
 
 
-```{r}
-mzg_raw %>% subset_taxa(Phylum!="Echinodermata") %>% subset_taxa(Phylum !="Bryozoa") %>% 
-  subset_taxa(Phylum !="Sipuncula") %>% subset_taxa(Phylum !="Nemertea") %>%
-  subset_taxa(Phylum !="Platyhelminthes") %>% subset_taxa(Phylum !="Rotifera") %>% subset_taxa(Order!="Scleractinia") %>% filter_taxa(function(x) sum(x > 0) > 1, TRUE) -> deseqps #764 #9156882 reads summed
-
-
-otu_table(deseqps)=otu_table(deseqps)+1
-diagdds = phyloseq_to_deseq2(deseqps, ~ WaterType)
-diagdds = DESeq(diagdds, test="Wald", fitType="mean") #fit type parametric didn't capture dispersion trend -> told to do local or mean
-res = results(diagdds, cooksCutoff = FALSE)
-alpha = 0.01
-sigtab = res[which(res$padj < alpha), ]
-sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(deseqps)[rownames(sigtab), ], "matrix"))
-#summary of comparison, shows which group +/-
-summary(res)
-res
-
-
-#Add watermass so can plot
-sigtab$WaterType=0
-ncol(sigtab)->WaterType
-logchange=sigtab$log2FoldChange
-for(i in 1:length(logchange))
-{
-  if(logchange[i] >=0)
-  {
-    sigtab[i,WaterType]="Subtropical"
-    #print("shrek")
-  } else {
-    sigtab[i,WaterType]="Subantarctic"
-  }
-}
-theme_set(theme_bw())
-scale_fill_discrete <- function(palname = "Set1", ...) {
-  scale_fill_brewer(palette = palname, ...)
-}
 
 
 
-
-
-
-
-#plot 
-x = tapply(sigtab$log2FoldChange, sigtab$Class, function(x) max(x))
-x = sort(x, TRUE)
-sigtab$Class = factor(as.character(sigtab$Class), levels=names(x))
-# Genus order -- tried family
-x = tapply(sigtab$log2FoldChange, sigtab$Family, function(x) max(x))
-x = sort(x, TRUE)
-sigtab$Genus = factor(as.character(sigtab$Genus), levels=names(x))
-ggplot(sigtab, aes(x=Family, y=log2FoldChange, color=Family)) + geom_point(size=6,alpha=.8) + 
-  theme( #axis.text.x = element_text(angle = -90, hjust = 0, vjust=0.5
-    axis.text.x=element_blank(),  #remove y axis labels
-    axis.ticks.x=element_blank(),
-    #plot.title = element_text(size = 12, face = "bold"),
-    legend.title=element_text(size=10), 
-    legend.text=element_text(size=6))+
-  facet_wrap(~Class,scales="free_x")+
-  geom_hline(yintercept=0)
-
-```
 
 #Figure 4.1a: indicator species or most abundants?
 ```{r}
+phyloseq_normalize_median <- function (ps) { 
+  ps_median = median(sample_sums(ps))
+  normalize_median = function(x, t=ps_median) (if(sum(x) > 0){ round(t * (x / sum(x)))} else {x})
+  ps = transform_sample_counts(ps, normalize_median)
+  cat(str_c("/n========== /n") )
+  print(ps)
+  cat(sprintf("/n==========/nThe median number of reads used for normalization is  %.0f", ps_median))
+  return(ps)
+}
+
+mzg_raw %>% subset_taxa(Phylum!="Echinodermata") %>% subset_taxa(Phylum !="Bryozoa") %>% #remove meroplankton taxa
+  subset_taxa(Phylum !="Sipuncula") %>% subset_taxa(Phylum !="Nemertea") %>%
+  subset_taxa(Phylum !="Platyhelminthes") %>% subset_taxa(Phylum !="Rotifera") %>% subset_taxa(Order!="Scleractinia") %>%
+  subset_taxa(Order !="Actiniaria") %>%
+  subset_taxa(Order !="Amphinomida") %>%
+  subset_taxa(Order !="Canalipalpata_EXT") %>%
+  subset_taxa(Order !="Cephalaspidea") %>% #decapoda? #leptothecata? idk
+  subset_taxa(Order !="Littorinimorpha") %>% #all these asvs removed retroactively after running ancom the 1st time
+  subset_taxa(Order !="Penicillaria") %>% #and faceted by results decided to remove meros
+  subset_taxa(Order !="Phyllodocida") %>%
+  subset_taxa(Order !="Scolecida_EXT") %>%
+  subset_taxa(Order !="Sedentaria_EXT") %>%
+  subset_taxa(Order !="Spionida") %>%
+  filter_taxa(function(x) sum(x > 0) > 1, TRUE) %>%
+  phyloseq_normalize_median() %>%
+  tax_glom("Species") -> mzg_species
+  
+mzg_species %>% otu_table() %>%  t() %>% data.frame() %>% rownames_to_column() ->hash #152
+mzg_species %>% tax_table() %>% data.frame() %>% rownames_to_column() -> names #152
+inner_join(names, hash) -> named
+named$superspec=paste0(named$Family, "_", named$Species)
+named %>% column_to_rownames(var="superspec") -> named #dataframe with species, hash, taxonomy, then abundances (columns include sample names)
+named[,-c(1:10)] %>% t() -> nameps #get rid of taxtable + asvs
+#reformat sample data to match order in species table to get real assocations
+sample_data(mzg) %>% data.frame() %>% rownames_to_column -> df1
+nameps %>% data.frame() %>% rownames_to_column() %>% full_join(df1) -> df2
+
+#run ~ water types
+groups <- df2$WaterType
+indval <- multipatt(nameps, groups, control = how(nperm=999))
+summary(indval, indvalcomp=TRUE)
+
+
+
+#######################################
+specps=tax_glom(mzg,"Species")
+#specps=subset_taxa(specps,Species!="Species")
+specps %>% otu_table() %>%  t() %>% data.frame() %>% rownames_to_column() ->hash #152
+specps %>% tax_table() %>% data.frame() %>%rownames_to_column() -> names #152
+inner_join(names,hash) ->named
+named$superspec=paste0(named$Family,"_",named$Species)
+named %>% column_to_rownames(var="superspec") -> named #dataframe with species, hash, taxonomy, then abundances (columns include sample names)
+named[,-c(1:11)] %>% t() -> nameps
+#reformat sample data to match order in species table to get real assocations
+sample_data(mzg) %>% data.frame() %>% rownames_to_column -> df1
+nameps %>% data.frame() %>% rownames_to_column() %>% full_join(df1) -> df2
+#remove missing species sample 
+df2 <- df2[-nrow(df2),] 	#C1D4_T4_N5_02
+
+#run ~ water types
+groups <- df2$WaterType
+indval <- multipatt(nameps, groups, control = how(nperm=999))
+summary(indval, indvalcomp=TRUE)
+
+#presence/absence association ~ water type
+namepspa <- ifelse(nameps>0,1,0)
+phi <- multipatt(namepspa, groups, func = "r.g", control = how(nperm=999))
+summary(phi)
+
+#species combinations ~WaterType
+namepscomb <- combinespecies(nameps, max.order = 2)$XC
+dim(namepscomb) #195 x 11711
+indvalspcomb <- multipatt(namepscomb, groups, duleg = TRUE, 
+                          control = how(nperm=999))
+summary(indvalspcomb, alpha=.01) #, indvalcomp = TRUE)
+
+#regular ~type + depth
+df2$WaterDepth = paste0(df2$WaterType, "_", df2$DepthZone)
+groups <- df2$WaterDepth
+indval <- multipatt(nameps, groups, control = how(nperm=999))
+summary(indval, alpha = .9)
+
+#pa association ~ type + depth
+namepspa <- ifelse(nameps>0,1,0)
+groups <- df2$WaterDepth
+phi <- multipatt(namepspa, groups, func = "r.g", control = how(nperm=999))
+summary(phi)
 
 ```
 
