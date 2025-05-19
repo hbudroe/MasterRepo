@@ -1,0 +1,764 @@
+---
+title: "MARS8180_DDT_Capstone"
+author: "Hannah Budroe"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+After the mars8180 capstone project, here is my official post qiime2 processing & analysis of the DDT dataset.
+The data used here was generated from qiime following the class tutorial but must be rerun (taxonomy reassigned, etc.) before actual analysis/publication.
+Code below is a mixture of mars8180, my own, and supplements from Tiago's woodfall scripts
+
+install libraries ----
+```{r}
+library(tidyverse)
+library(phyloseq)
+library(vegan)
+library(qiime2R)
+library(decontam)
+library(speedyseq)
+library(microbiome)
+library(data.table)
+library(patchwork)
+library(factoextra) #for pca
+library(ggbiplot) #also for pca
+```
+
+Defined functions ----
+```{r}
+#Median Normalization from Moira - normalize number of reads to median sampling depth
+phyloseq_normalize_median <- function (ps) { 
+  ps_median = median(sample_sums(ps))
+  normalize_median = function(x, t=ps_median) (if(sum(x) > 0){ round(t * (x / sum(x)))} else {x})
+  ps = transform_sample_counts(ps, normalize_median)
+  cat(str_c("/n========== /n") )
+  print(ps)
+  cat(sprintf("/n==========/nThe median number of reads used for normalization is  %.0f", ps_median))
+  return(ps)
+}
+```
+
+Import ddt dataset from mars8180 class materials ----
+```{r}
+#Read in the asvs table, taxonomy, tree, and metadata from the ddt-project folder we made in class
+path <- ("~/Desktop/ddt-project/")
+asvs <- read_qza(paste0(path, "results/05-dada2-feature-table.qza"))
+taxonomy <- read_qza(paste0(path,"results/06-taxonomy-blast-90-1.qza"))
+tree <- read_qza(paste0(path,"results/07-fasttree-midrooted-tree.qza"))
+#metadata <- read.delim2("metadata/2025-01-03-ddt-metadata.csv", )
+metadata <- read.csv(paste0(path, "metadata/2025-01-03-ddt-metadata.csv"))
+
+#extract the data from the qiime artifacts
+asv_df <- asvs$data
+taxonomy_df <- taxonomy$data
+phylo_tree <- tree$data
+```
+
+Wrangle with structure & reformat data ----
+```{r}
+#check the taxonomy structure -- shows us the tax strings haven't separated
+head(taxonomy_df)
+#separate out tax strings
+taxonomy_fixed_df <- taxonomy_df %>% separate_wider_delim(Taxon, delim = ";", names_sep = "", too_few = "align_start")
+#replace NA with unassigned
+taxonomy_fixed_df[is.na(taxonomy_fixed_df)] <- "Unassigned"
+taxonomy_fixed_df <- as.data.frame(taxonomy_fixed_df) # force into a dataframe
+row.names(taxonomy_fixed_df) <- taxonomy_fixed_df$Feature.ID # make first column into row names
+taxonomy_fixed_df$Feature.ID <- NULL # remove the first column
+taxonomy_matrix <- as.matrix(taxonomy_fixed_df) # convert to a matrix 
+
+#check the metadata structure
+head(metadata)
+#index metadata by the sample ID for later matching when creating phyloseq object
+column_to_rownames(metadata, "Sample_ID") -> metadata
+
+
+###Add some columns to metadata
+
+#Adjust levels for barrel zones
+metadata$Barrel_Zone <- factor(metadata$Barrel_Zone, levels = c("0.1m", "1.0m", "3.0m", "5.0m", ">10m", ">40Km", ">100Km"))
+
+#Add new column to define barrels (zones A:D) v background (>10m...)
+metadata$Barrel_Background <- NA
+for(i in c(1:nrow(metadata))){
+  if(metadata$Barrel_Zone[i] %in% c("0.1m", "1.0m", "3.0m", "5.0m")){
+  metadata$Barrel_Background[i] = "Barrel"
+  } else {
+  metadata$Barrel_Background[i] = "Background"
+} }
+
+#Add letter for barrel zones
+metadata$Zone <- NA
+for(i in c(1:nrow(metadata))){
+  if (metadata$Barrel_Background[i] == "Background"){
+  metadata$Zone[i] = "Background"
+  } else if (metadata$Barrel_Zone[i] == "0.1m") {
+  metadata$Zone[i] = "A"
+  } else if (metadata$Barrel_Zone[i] == "1.0m"){
+    metadata$Zone[i] = "B"
+  } else if (metadata$Barrel_Zone[i] == "3.0m"){
+    metadata$Zone[i] = "C"
+  }else if (metadata$Barrel_Zone[i] == "5.0m"){
+    metadata$Zone[i] = "D"
+  }
+}
+metadata$Zone <- factor(metadata$Zone, levels = c("A", "B", "C", "D", "Background"))
+
+```
+
+Create phyloseq object! ----
+```{r}
+#Create phyloseq components
+physeq_otu <- otu_table(asv_df, taxa_are_rows = T) 
+physeq_tax <- tax_table(taxonomy_matrix) 
+physeq_meta <- sample_data(metadata) 
+
+#merge into a phyloseq object!
+phylo_object <- phyloseq(physeq_otu, physeq_tax, physeq_meta) 
+phylo_object_tree <- merge_phyloseq(phylo_object, phylo_tree) # add tree into phyloseq object
+```
+
+Run the decontam pipeline to remove contaminants ----
+```{r}
+# create a sample-variable for contaminants
+sample_data(phylo_object_tree)$is.neg <- sample_data(phylo_object_tree)$Sample_Control == "Control" 
+# detect contaminants based on control samples and their ASV prevalance
+phylo_object_contaminants <- isContaminant(phylo_object_tree, method = "prevalence", neg="is.neg", 
+                threshold=0.5, detailed = TRUE, normalize = TRUE) 
+# check number of ASVs that are contaminents
+table(phylo_object_contaminants$contaminant) #I got 65 TRUE contaminants
+
+# Make phyloseq object of presence-absence in negative controls and true samples
+phylo_object_contaminants.pa <- transform_sample_counts(phylo_object_tree, function(abund) 1 * (abund > 0)) # convert phyloseq table to presence-absence
+ps.pa.neg <- subset_samples(phylo_object_contaminants.pa, Sample_Control=="Control")
+ps.pa.pos <- subset_samples(phylo_object_contaminants.pa, Sample_Control=="Sample")
+df.pa <- data.frame(pa.pos=taxa_sums(ps.pa.pos), pa.neg=taxa_sums(ps.pa.neg), 
+                    contaminant=phylo_object_contaminants$contaminant) # convert into a dataframe
+
+# Make phyloseq object of presence-absence in negative controls and true samples
+phylo_object_contaminants.pa <- transform_sample_counts(phylo_object_tree, function(abund) 1 * (abund > 0)) # convert phyloseq table to presence-absence
+ps.pa.neg <- subset_samples(phylo_object_contaminants.pa, Sample_Control=="Control")
+ps.pa.pos <- subset_samples(phylo_object_contaminants.pa, Sample_Control=="Sample")
+df.pa <- data.frame(pa.pos=taxa_sums(ps.pa.pos), pa.neg=taxa_sums(ps.pa.neg), 
+                    contaminant=phylo_object_contaminants$contaminant) # convert into a dataframe
+
+# Make phyloseq object of presence-absence in negative controls and true samples
+ggplot(data=df.pa, aes(x=pa.neg, y=pa.pos, color=contaminant)) + geom_point() + 
+  xlab("Prevalence (Negative Controls)") + ylab("Prevalence (True Samples)")
+# remove ASVs identified as decontaminants from the dataset
+phylo_obj_tree_sans_contam <- prune_taxa(!phylo_object_contaminants$contaminant, 
+                                         phylo_object_tree) 
+## Remove blanks and positive controls
+phylo_obj_tree_sans_contam_sans_controls <- subset_samples(phylo_obj_tree_sans_contam, Sample_Control != "Control" & Sample_Type != "PosCtrl" & Sample_Type != "NegCtrl") #I added the subset out +/- controls since that wasn't in the code we ran in class
+
+#let's look at our final decontaminated object -- 198 samples
+phylo_obj_tree_sans_contam_sans_controls
+
+###remove human samples "D_17__Homo sapiens (human)"
+subset_taxa(phylo_obj_tree_sans_contam_sans_controls, Taxon18 != "D_17__Homo sapiens (human)") -> phylo_obj_tree_sans_contam_sans_controls_nohomo
+```
+
+Data QC -- visualize clustering between controls & samples, sequencing depth... ----
+```{r}
+###First, let's look at pre decontam data quality using phylo_object_tree -- nmds to see how controls cluster with samples
+ord <- ordinate(phylo_object_tree, "NMDS", "bray", k=2, permutations=999)
+plot_ordination(phylo_object_tree, ord, type="samples", color="Sample_Type", shape = "Barrel_Background", label = "Sample")+
+  theme(axis.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        panel.background = element_blank(), panel.border = element_rect(fill = NA, colour = "grey30"), 
+        axis.ticks = element_blank(), axis.text = element_blank(), legend.key = element_blank(), 
+        legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 9, colour = "grey30")) #+
+  facet_grid(~Barrel_Zone, scales = "free_x") 
+  
+### transform samples & then re ordinate  -- stole this code chunk from Tiago wofa-18S
+phy_comp <- microbiome::transform(phylo_object_tree, "compositional")
+phy_hel <- microbiome::transform(phylo_object_tree, "hellinger")
+#compositional transofrmation -- nmds on entire dataset unfiltered
+set.seed(1234)
+phy_comp_mds <- ordinate( physeq = phy_comp,  method = "NMDS",  distance = "bray",key = 2, try = 50 )
+plot_ordination(phy_comp, phy_comp_mds, type="samples", color="Sample_Type", shape =
+                  "Barrel_Background", label = "Sample")+
+  theme(axis.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        panel.background = element_blank(), panel.border = element_rect(fill = NA, colour = "grey30"), 
+        axis.ticks = element_blank(), axis.text = element_blank(), legend.key = element_blank(), 
+        legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 9, colour = "grey30")) #+
+  facet_grid(~Barrel_Zone, scales = "free_x") 
+#hellinger transformation -- nmds on entire dataset unfiltered
+set.seed(1234)
+phy_hel_mds <- ordinate( physeq = phy_hel,  method = "NMDS",  distance = "bray",  key = 2, try = 50 )  
+plot_ordination(phy_hel, phy_hel_mds, type="samples", color="Sample_Type", shape = "Barrel_Background",
+                label = "Sample")+
+  theme(axis.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        panel.background = element_blank(), panel.border = element_rect(fill = NA, colour = "grey30"), 
+        axis.ticks = element_blank(), axis.text = element_blank(), legend.key = element_blank(), 
+        legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 9, colour = "grey30")) #+
+  facet_grid(~Barrel_Zone, scales = "free_x") 
+  
+  
+#I wonder if I remove low abundance samples will the controls still cluster with real samples?  
+phylo_object_tree %>% subset_samples(sample_sums(phylo_object_tree) >=1500) %>% microbiome::transform("hellinger") -> phy_test
+set.seed(1234)
+phy_test_mds <- ordinate( physeq = phy_test,  method = "NMDS",  distance = "bray",  key = 2, try = 50 ) 
+plot_ordination(phy_test, phy_test_mds, type="samples", color="Sample_Type", shape =
+                  "Barrel_Background", label = "Sample")+
+  theme(axis.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        panel.background = element_blank(), panel.border = element_rect(fill = NA, colour = "grey30"), 
+        axis.ticks = element_blank(), axis.text = element_blank(), legend.key = element_blank(), 
+        legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 9, colour = "grey30")) #+
+  facet_grid(~Barrel_Zone, scales = "free_x") 
+  
+#For the samples clustering the -controls, compare pre decontam & after decontam read sums  
+sample_sums(phylo_object_tree)
+sample_sums(phylo_obj_tree_sans_contam_sans_controls)
+#14 : 42336, 34895 ; 4421, 3198
+#15: 38685, 34320 ; 6961, 4271
+#16  ; 4155, 4267
+#71: 36393, 33792 ; 5339, 3223 #and there are other samples as well
+
+#cross reference most abundant asvs before/after decontam, compare to NC/PC
+View(otu_table(phylo_object_tree))
+View(otu_table(phylo_obj_tree_sans_contam_sans_controls))
+tax_table(phylo_object_tree) %>% data.frame() %>% rownames_to_column() %>% View()
+
+  
+###Look at read counts for final samples (post decontam), facet by metadata vars
+sdt = data.table(as(sample_data(phylo_obj_tree_sans_contam_sans_controls), "data.frame"), TotalReads = sample_sums(phylo_obj_tree_sans_contam_sans_controls), keep.rownames = TRUE)
+setnames(sdt, "rn", "SampleID") #"rn" = rownames (sample ID)
+(pSeqDepth = ggplot(sdt, aes(TotalReads)) + geom_histogram() + ggtitle("Sequencing Depth"))
+pSeqDepth + facet_wrap(~Site_Area)
+
+#Zoom into low abundance --> 5 samples zones D/C in core fracs 6_8/4_6 --> DNA extractions 94, 95 & 48
+phylo_obj_tree_sans_contam_sans_controls %>% subset_samples(sample_sums(phylo_obj_tree_sans_contam_sans_controls) <=1000) %>% sample_data() 
+```
+
+
+Ok now we have an uncontaminated phyloseq object with all 1st round DDT samples & updated metadata
+Now let's do some next level processing for filtering, data norm/trans, tax table refinement, taxonomic narrowing? 
+```{r}
+###First, filter out low abundance samples <1000 reads
+lowreads <- 1000
+phylo_obj_tree_sans_contam_sans_controls_nohomo %>% subset_samples(sample_sums(phylo_obj_tree_sans_contam_sans_controls_nohomo) >=1000) -> phylo_obj_tree_sans_contam_sans_controls_nohomo_filtered 
+sample_sums(phylo_obj_tree_sans_contam_sans_controls_nohomo_filtered) 
+
+###Let's start with names from scratch & add one
+phylo_obj_tree_sans_contam_sans_controls_nohomo_filtered -> ddt_phylo
+
+###Normalize before subsetting taxa
+phyloseq_normalize_median(ddt_phylo) -> ddt_phylo_norm #moira function median seq depth
+
+###Don't merge PCR replicates! I need all the samples I can get since we are separating by core_fraction1
+
+###Taxonomic filtering
+#First, remove unassigned at euk kingdom level
+subset_taxa(ddt_phylo_norm, Taxon1 == "D_0__Eukaryota") -> ddt_phylo_norm_euks
+get_taxa_unique(ddt_phylo_norm_euks, taxonomic.rank = "Taxon1") #check
+#Then subset nemas
+subset_taxa(ddt_phylo_norm_euks, Taxon14 == "D_13__Nematoda") -> ddt_phylo_norm_euks_nema
+get_taxa_unique(ddt_phylo_norm_euks_nema, taxonomic.rank = "Taxon14") #check
+get_taxa_unique(ddt_phylo_norm_euks_nema, taxonomic.rank = "Taxon22") #get unique genera for Simone
+
+###Divide up the dataset by core_fraction/sediment depth [depth patterns obscuring DDX]
+ddt_phylo_norm_euks_nema_02 <-  subset_samples(ddt_phylo_norm_euks_nema, Core_Fraction == "0_2")
+ddt_phylo_norm_euks_nema_24 <-  subset_samples(ddt_phylo_norm_euks_nema, Core_Fraction == "2_4")
+ddt_phylo_norm_euks_nema_46 <-  subset_samples(ddt_phylo_norm_euks_nema, Core_Fraction == "4_6")
+ddt_phylo_norm_euks_nema_68 <-  subset_samples(ddt_phylo_norm_euks_nema, Core_Fraction == "6_8")
+```
+
+Secondary data QC after tax filtering
+```{r}
+###Quick QC check look at sample abundances before/after subsetting nemas
+samplesum_df <- data.frame(phyloseq::sample_data(ddt_phylo_norm_euks),
+       "Total_Euk_Reads" = phyloseq::sample_sums(ddt_phylo_norm_euks),
+       "Observed_Euk_ASVs" = phyloseq::estimate_richness(ddt_phylo_norm_euks, measures = "Observed"),
+        "Total_Nema_Reads" = phyloseq::sample_sums(ddt_phylo_norm_euks_nema),
+        "Observed_Nema_ASVs" = phyloseq::estimate_richness(ddt_phylo_norm_euks_nema, measures = "Observed"))
+samplesum_df %>% pivot_longer(cols = c("Total_Euk_Reads", "Total_Nema_Reads")) -> samplesum_df 
+#plot
+ggplot(data = samplesum_df, aes(x = Sample, y = value, color = name))+
+  geom_point()+
+  facet_grid(~Core_Fraction, scales = "free_x") #+Zone
+```
+
+Alpha diversity
+```{r}
+### Build a df for better alpha plotting -code from 8180
+#all euks
+df <- ddt_phylo_norm_euks
+alpha_div_euks <- data.frame(phyloseq::sample_data(df), # get metadata
+  "Reads" = phyloseq::sample_sums(df), # number of reads
+  "Observed" = phyloseq::estimate_richness(df, measures = "Observed"),
+  "Shannon" = phyloseq::estimate_richness(df, measures = "Shannon"),
+  "InvSimpson" = phyloseq::estimate_richness(df, measures = "InvSimpson")) 
+alpha_div_euks$Evenness <- alpha_div_euks$Shannon/log(alpha_div_euks$Observed) #also calculate evenness
+
+#nems
+df <- ddt_phylo_norm_euks_nema
+alpha_div_euks <- data.frame(phyloseq::sample_data(df), # get metadata
+  "Reads" = phyloseq::sample_sums(df), # number of reads
+  "Observed" = phyloseq::estimate_richness(df, measures = "Observed"),
+  "Shannon" = phyloseq::estimate_richness(df, measures = "Shannon"),
+  "InvSimpson" = phyloseq::estimate_richness(df, measures = "InvSimpson")) 
+alpha_div_euks$Evenness <- alpha_div_euks$Shannon/log(alpha_div_euks$Observed) #also calculate evenness
+```
+
+Beta Diversity
+- nmds
+```{r}
+###Run NMDS on euks #Slide 2
+set.seed(1234)
+ord <- ordinate(ddt_phylo_norm_euks, "NMDS", "bray", k=3, permutations=999) 
+#without faceting
+plot_ordination(ddt_phylo_norm_euks, ord, type="samples", color="Core_Fraction", shape = "Zone")+
+  theme(axis.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        panel.background = element_blank(), panel.border = element_rect(fill = NA, colour = "grey30"), 
+        axis.ticks = element_blank(), axis.text = element_blank(), legend.key = element_blank(), 
+        legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 9, colour = "grey30")) -> p0
+#with faceting
+plot_ordination(ddt_phylo_norm_euks, ord, type="samples", color="Core_Fraction", shape = "Zone")+
+  theme(axis.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        panel.background = element_blank(), panel.border = element_rect(fill = NA, colour = "grey30"), 
+        axis.ticks = element_blank(), axis.text = element_blank(), legend.key = element_blank(), 
+        legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 9, colour = "grey30"))+
+  facet_grid(. ~Core_Fraction,scales = "free_x") -> p1
+p1+p0+
+  ggtitle("All Eukaryotes")
+
+###Run same NMDS with hellinger transformation #Slide 3
+phy_hel <- microbiome::transform(ddt_phylo_norm_euks, "hellinger") #from tiago
+set.seed(1234)
+ord <- ordinate(phy_hel, "NMDS", "bray", k=3, permutations=999) 
+#without faceting
+plot_ordination(phy_hel, ord, type="samples", color="Core_Fraction", shape = "Zone")+
+  theme(axis.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        panel.background = element_blank(), panel.border = element_rect(fill = NA, colour = "grey30"), 
+        axis.ticks = element_blank(), axis.text = element_blank(), legend.key = element_blank(), 
+        legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 9, colour = "grey30")) -> p0
+#with faceting
+plot_ordination(phy_hel, ord, type="samples", color="Core_Fraction", shape = "Zone")+
+  theme(axis.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        panel.background = element_blank(), panel.border = element_rect(fill = NA, colour = "grey30"), 
+        axis.ticks = element_blank(), axis.text = element_blank(), legend.key = element_blank(), 
+        legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 9, colour = "grey30"))+
+  facet_grid(. ~Core_Fraction,scales = "free_x") -> p1
+p1+p0+
+  ggtitle("All Eukaryotes, Hellinger-transformed")
+```
+
+More beta diversity ----
+- run bioenv & mantel
+```{r}
+
+###Run bioenv 
+#on 0_2 core fraction nemas only
+ddt_phylo_norm_euks_nema_02 -> df 
+#on 0_2 core fraction nemas, no background samples
+subset_samples(ddt_phylo_norm_euks_nema_02, Barrel_Background == "Barrel") -> df
+#on 2_4 fraction nemas only
+ddt_phylo_norm_euks_nema_24 -> df 
+#on 2_4 core fraction nemas, no background samples
+subset_samples(ddt_phylo_norm_euks_nema_24, Barrel_Background == "Barrel") -> df
+
+
+###Run the bioenv, mantel, plot
+otu_table(df)[, which(colSums(otu_table(df)) != 0)] %>% t() -> otus
+#transform continuous vars into numeric (currently chr due to no.data)
+df %>% sample_data() %>% data.frame() %>% mutate_at(vars("Depth", "Salinity", "Temperature", "Oxygen", "Latitude", "Longitude", "DDT", "DDE", "DDD", "DDMU", "DDX", "PAHs", "PCBs", "TOM", "H2O", "Porosity", "Sand", "Silt_Clay", "Chla", "Phaeo", "CPE", "TOC", "TN", "X13CVPDB", "X15NAir", "Chla_Phae", "Nema_Count"), as.numeric) -> env_df
+#actually subset the continuous vars only
+env_df <- env_df[, c("Latitude", "Longitude", "Salinity", "Temperature", "Depth", "Oxygen","DDX", "PAHs", "PCBs", "TOM", "Porosity", "TOC", "TN", "X13CVPDB", "X15NAir", "Chla_Phae", "Chla", "Phaeo", "CPE")]
+#run bioenv
+bioenv(comm=(otus), env=env_df, method="spearman", index="bray", upto=ncol(env_df), trace=FALSE, partial=NULL, metric="euclidean") ->bioenvresult 
+bioenvresult
+#select the best model for mantel test
+bioenvdist(bioenvresult, which="best") -> bioenvtab 
+#run mantel
+mantel(vegdist((otus), method="bray"), bioenvtab, method="spearman", permutations=9999, na.rm=TRUE) -> mant
+mant
+#define plotting data
+ord <- ordinate(df, "NMDS", "bray", k=2)
+en <- envfit(ord, env_df, permutations=999, na.rm=TRUE)  
+data.scores = as.data.frame(ord$points)
+data.scores$Barrel_ID = sample_data(df)$Barrel_ID
+data.scores$Zone = sample_data(df)$Zone
+data.scores$Dive = sample_data(df)$Dive
+en_coord_cont = as.data.frame(scores(en, "vectors")) * ordiArrowMul(en)
+en_coord_cat = as.data.frame(scores(en, "factors")) * ordiArrowMul(en)
+#plot
+ggplot(data = data.scores, aes(x = MDS1, y = MDS2)) + 
+  geom_point(data = data.scores, aes(colour = Zone, shape = Barrel_ID), size = 3, alpha = 0.8)+  
+  geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
+               data = en_coord_cont, linewidth =1, alpha = 0.5, colour = "grey30")+ 
+  geom_text(data = en_coord_cont, aes(x = NMDS1, y = NMDS2), colour = "grey30", size=3, fontface = "bold", label = row.names(en_coord_cont)) + 
+  theme(axis.title = element_text(size =10, face = "bold", colour = "grey30"), 
+        panel.background = element_blank(), panel.border = element_rect(fill = NA, colour = "grey30"), 
+        axis.ticks = element_blank(), axis.text = element_blank(), legend.key = element_blank(), 
+        legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 9, colour = "grey30"))
+
+```
+
+
+Taxonomic Exploration -- ASV change over distance from barrel?
+- List from Simone of new species - genera
+```{r}
+View(tax_table(ddt_phylo_norm_euks_nema))
+
+###Calculate top 10ASVs
+OTUnames10 = names(sort(taxa_sums(ddt_phylo_norm_euks_nema), TRUE)[1:10])
+ddt_phylo_norm_euks_nema_top10 <-  prune_taxa(OTUnames10,  ddt_phylo_norm_euks_nema)
+print(get_taxa_unique(ddt_phylo_norm_euks_nema_top10, taxonomic.rank = "Taxon22")) #check
+#plot
+plot_bar(ddt_phylo_norm_euks_nema_top10, "Sample", fill="Taxon22") +
+  geom_bar(aes(color=Taxon22), stat="identity")+
+facet_grid( ~Core_Fraction+Zone, scales = "free_x")+
+  ggtitle("Top 10 Nematode ASVs")
+
+###Agglomerate at genus level & calculate top 10 genera -- overall
+ddt_phylo_norm_euks_nema %>% phyloseq::tax_glom("Taxon22") -> ddt_phylo_norm_euks_nema_genglom
+OTUnames10 = names(sort(taxa_sums(ddt_phylo_norm_euks_nema_genglom), TRUE)[1:10])
+ddt_phylo_norm_euks_nema_genglom_top10 <-  prune_taxa(OTUnames10,  ddt_phylo_norm_euks_nema)
+print(get_taxa_unique(ddt_phylo_norm_euks_nema_genglom_top10, taxonomic.rank = "Taxon22")) #check
+#plot
+plot_bar(ddt_phylo_norm_euks_nema_genglom_top10, "Sample", fill="Taxon22") +
+  geom_bar(aes(color=Taxon22), stat="identity")+
+facet_grid( ~Core_Fraction+Zone, scales = "free_x")+
+  ggtitle("Top 10 Nematode Genera")
+
+###top 10ASVs for each core layer
+#0_2
+OTUnames10 = names(sort(taxa_sums(ddt_phylo_norm_euks_nema_02), TRUE)[1:10])
+ddt_phylo_norm_euks_nema_02_top10 <-  prune_taxa(OTUnames10,  ddt_phylo_norm_euks_nema_02)
+print(get_taxa_unique(ddt_phylo_norm_euks_nema_02_top10, taxonomic.rank = "Taxon22"))
+plot_bar(ddt_phylo_norm_euks_nema_02_top10, "Sample", fill="Taxon23") +
+  geom_bar(aes(color=Taxon23), stat="identity")+
+facet_grid( ~Zone, scales = "free_x")+
+  ggtitle("Top 10 Nematode ASVs 0-2cm") -> p1
+#2_4
+OTUnames10 = names(sort(taxa_sums(ddt_phylo_norm_euks_nema_24), TRUE)[1:10])
+ddt_phylo_norm_euks_nema_24_top10 <-  prune_taxa(OTUnames10,  ddt_phylo_norm_euks_nema_24)
+print(get_taxa_unique(ddt_phylo_norm_euks_nema_24_top10, taxonomic.rank = "Taxon22"))
+plot_bar(ddt_phylo_norm_euks_nema_24_top10, "Sample", fill="Taxon23") +
+  geom_bar(aes(color=Taxon23), stat="identity")+
+facet_grid( ~Zone, scales = "free_x")+
+  ggtitle("Top 10 Nematode ASVs 2-4cm") -> p2
+#4_6
+OTUnames10 = names(sort(taxa_sums(ddt_phylo_norm_euks_nema_46), TRUE)[1:10])
+ddt_phylo_norm_euks_nema_46_top10 <-  prune_taxa(OTUnames10,  ddt_phylo_norm_euks_nema_46)
+print(get_taxa_unique(ddt_phylo_norm_euks_nema_46_top10, taxonomic.rank = "Taxon22"))
+plot_bar(ddt_phylo_norm_euks_nema_46_top10, "Sample", fill="Taxon23") +
+  geom_bar(aes(color=Taxon23), stat="identity")+
+facet_grid( ~Zone, scales = "free_x")+
+  ggtitle("Top 10 Nematode ASVs 4-6cm") -> p3
+#6_8
+OTUnames10 = names(sort(taxa_sums(ddt_phylo_norm_euks_nema_68), TRUE)[1:10])
+ddt_phylo_norm_euks_nema_68_top10 <-  prune_taxa(OTUnames10,  ddt_phylo_norm_euks_nema_68)
+print(get_taxa_unique(ddt_phylo_norm_euks_nema_68_top10, taxonomic.rank = "Taxon22"))
+plot_bar(ddt_phylo_norm_euks_nema_68_top10, "Sample", fill="Taxon23") +
+  geom_bar(aes(color=Taxon23), stat="identity")+
+facet_grid( ~Zone, scales = "free_x")+
+  ggtitle("Top 10 Nematode ASVs 6-8cm") -> p4
+p1+p2+p3+p4
+
+###Look at individual ASV abundance across distance from barrel within each layer
+#02 layer top ASV
+names(sort(taxa_sums(ddt_phylo_norm_euks_nema_02), TRUE)[1]) -> ASVname
+prune_taxa(ASVname,  ddt_phylo_norm_euks_nema_02) %>% phyloseq::psmelt() %>% data.frame() -> topasv02
+#plot 
+ggplot(data = topasv02, aes(x = Zone, y = Abundance, color = Barrel_ID))+
+  geom_point()+
+  theme_bw()+
+  ggtitle(paste0("0_2cm_", ASVname, "_", tax_table(ddt_phylo_norm_euks_nema_02)[ASVname, 23]))
+#02 #2 ASV
+names(sort(taxa_sums(ddt_phylo_norm_euks_nema_02), TRUE)[2]) -> ASVname
+prune_taxa(ASVname,  ddt_phylo_norm_euks_nema_02) %>% phyloseq::psmelt() %>% data.frame() -> topasv02
+ggplot(data = topasv02, aes(x = Zone, y = Abundance, color = Barrel_ID))+
+  geom_point()+
+  theme_bw()+
+  ggtitle(paste0("0_2cm_", ASVname, "_", tax_table(ddt_phylo_norm_euks_nema_02)[ASVname, 23]))+
+  scale_y_continuous(trans='log10') #bc scale hard to see
+#24 layer top ASV
+names(sort(taxa_sums(ddt_phylo_norm_euks_nema_24), TRUE)[2]) -> ASVname
+prune_taxa(ASVname,  ddt_phylo_norm_euks_nema_24) %>% phyloseq::psmelt() %>% data.frame() -> topasv24
+#plot 
+ggplot(data = topasv24, aes(x = Zone, y = Abundance, color = Barrel_ID))+
+  geom_point()+
+  theme_bw()+
+  ggtitle(paste0("2_4cm_", ASVname, "_", tax_table(ddt_phylo_norm_euks_nema_24)[ASVname, 23]))+
+  scale_y_continuous(trans='log10')
+
+```
+
+Look at the specific genera Simone is describing
+```{r}
+subset_taxa(ddt_phylo_norm_euks_nema, Taxon22 == "D_21__Gammanema") %>% phyloseq::psmelt() %>% data.frame() -> df
+ggplot(data = df, aes(x = Zone, y = Abundance, color =  Barrel_ID))+  #color = Taxon23
+  geom_point()+
+  theme_bw()+
+  ggtitle("Gammanema")+
+  facet_wrap(~Core_Fraction)
+
+subset_taxa(ddt_phylo_norm_euks_nema, Taxon22 == "D_21__Paramonhystera") %>% phyloseq::psmelt() %>% data.frame() -> df
+ggplot(data = df, aes(x = Zone, y = Abundance, color =  Barrel_ID))+  #color = Taxon23
+  geom_point()+
+  theme_bw()+
+  ggtitle("Paramonhystera")+
+  facet_wrap(~Core_Fraction)
+
+subset_taxa(ddt_phylo_norm_euks_nema, Taxon22 == "D_21__Pseudomicrolaimus") %>% phyloseq::psmelt() %>% data.frame() -> df
+ggplot(data = df, aes(x = Zone, y = Abundance, color =  Barrel_ID))+  #color = Taxon23
+  geom_point()+
+  theme_bw()+
+  ggtitle("Pseudomicrolaimus")+
+  facet_wrap(~Core_Fraction)
+
+###Redo with more barrel specific patterns
+#Remove bg for now
+subset_samples(ddt_phylo_norm_euks_nema, Barrel_Background == "Barrel" & Core_Fraction == "0_2") %>% subset_taxa(Taxon22 == "D_21__Gammanema") %>% phyloseq::psmelt() %>% data.frame() -> df
+ggplot(data = df, aes(x = Zone, y = Abundance, color =  Barrel_ID))+  #color = Taxon23
+  geom_point()+
+  theme_bw()+
+  ggtitle("Gammanema_02_Barrels")+
+  facet_wrap(~Dive)
+
+#look at gammanema most abundant asv
+subset_samples(ddt_phylo_norm_euks_nema, Barrel_Background == "Barrel" & Core_Fraction == "0_2") %>% subset_taxa(Taxon22 == "D_21__Gammanema") -> df
+names(sort(taxa_sums(df), TRUE)[1]) -> ASVname
+prune_taxa(ASVname,  df) %>% phyloseq::psmelt() %>% data.frame() -> df
+ggplot(data = df, aes(x = Zone, y = Abundance, color =  Barrel_ID))+  #color = Taxon23
+  geom_point()+
+  theme_bw()+
+  ggtitle("Top_Gammanema_ASV_02_Barrels")+
+  facet_wrap(~Barrel_ID)
+```
+
+
+Look at important environmental variables
+- PCA on each core_fraction & to potentially use for reduced dimension analysis
+- also to identify potential variables for constrained analysis
+```{r}
+###Run PCA on individual core_fractions
+ddt_phylo_norm_euks_nema_02 %>% subset_samples(Barrel_Background == "Barrel") -> df
+ddt_phylo_norm_euks_nema_24 %>% subset_samples(Barrel_Background == "Barrel") -> df
+ddt_phylo_norm_euks_nema_46 %>% subset_samples(Barrel_Background == "Barrel") -> df
+ddt_phylo_norm_euks_nema_68 %>% subset_samples(Barrel_Background == "Barrel") -> df
+
+#define df with only numerics
+df %>% sample_data() %>% data.frame() %>% mutate_at(vars("Depth", "Salinity", "Temperature", "Oxygen", "Latitude", "Longitude", "DDT", "DDE", "DDD", "DDMU", "DDX", "PAHs", "PCBs", "TOM", "H2O", "Porosity", "Sand", "Silt_Clay", "Chla", "Phaeo", "CPE", "TOC", "TN", "X13CVPDB", "X15NAir", "Chla_Phae", "Nema_Count"), as.numeric) -> env_df
+env_df <- env_df[, c("Depth", "Salinity", "Temperature", "Oxygen", "Latitude", "Longitude", "DDT", "DDE", "DDD", "DDMU", "DDX", "PAHs", "PCBs", "TOM", "H2O", "Porosity", "Sand", "Silt_Clay", "Chla", "Phaeo", "CPE", "TOC", "TN", "X13CVPDB", "X15NAir", "Chla_Phae")]
+
+#remove samples that are uniform across the dataframe (threw an error for 6_8 DDT...)
+sd_vals <- apply(env_df, 2, sd)
+nozero_variance_cols <- names(sd_vals)[sd_vals > 0]
+env_df <- env_df[nozero_variance_cols]
+#remove NAs causing error
+env_df_nona <- env_df[rowSums(is.na(env_df)) == 0, ]
+xrownames <- rownames(env_df_nona)
+sample_data(df)$SampleID <- paste0(sample_data(df)$Sample, ".", sample_data(df)$PCR_Replicate)
+subset_samples(df, SampleID %in% xrownames) -> phy_filt
+#core_fraction <- sample_data(phy_filt)$Core_Fraction #create vectors of categories
+zone <- sample_data(phy_filt)$Zone # ^^
+#run pca
+pca_mzg <- prcomp(env_df_nona, scale. = TRUE)
+summary(pca_mzg)
+scree_data <- data.frame(
+  Component = 1:length(pca_mzg$sdev),
+  Variance = pca_mzg$sdev^2 / sum(pca_mzg$sdev^2)
+)
+ggplot(scree_data, aes(x = Component, y = Variance)) +  #plot proportion variance explained by each PC dim (scree plot)
+  geom_bar(stat = "identity", fill = "steelblue") +
+  geom_line() +
+  geom_point() +
+  xlab("Principal Components") +
+  ylab("Proportion of Variance Explained") +
+  ggtitle("Scree Plot")
+
+pca_mzg_vars <- get_pca_var(pca_mzg) #factoextra:: tells how individual vars contribute to each pc dim
+head(pca_mzg_vars$contrib, 7)
+fviz_contrib(pca_mzg, choice = "var", axes = 1, top = 15) -> p1 #visualizes contribution to pc1
+fviz_contrib(pca_mzg, choice = "var", axes = 2, top = 10) -> p2 # ^^ pc2  
+p1+p2
+#plot
+ggbiplot(pca_mzg, obs.scale = 1, var.scale = 1)+
+  geom_point(aes(color = zone, size = 2))+
+  theme_light()#+
+  stat_ellipse(geom = "polygon", aes(group = factor(core_fraction), fill = factor(core_fraction), alpha = 0.25), linetype = 1)
+  
+  
+###Can I try to plot PCA scores?
+#extract scores & groupings
+##x = scores
+data.frame(pca_mzg$x) %>% rownames_to_column() -> PCA.scores
+sample_data(df) %>% data.frame() %>% rownames_to_column()-> df2  
+merge(PCA.scores, df2, by = "rowname") -> PCA_score_env # together PCA scores & env groupings
+#try plotting PCA scores by groupings
+ggplot(data = PCA_score_env, aes(x = Site, y = PC2)) +
+geom_boxplot() +
+geom_jitter(aes(colour = Zone), width = 0.3, height = 0) +
+theme_bw()
+
+###more pca plotting
+fviz_pca_var(pca_mzg,
+             col.var = "contrib", # Color by contributions to the PC
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE     # Avoid text overlapping
+             )
+````
+
+Try to do a dbrda
+```{r}
+#Set df
+ddt_phylo_norm_euks %>% subset_samples(Barrel_Background == "Barrel" & Core_Fraction == "0_2") -> df
+
+#subset & norm env data
+df %>% sample_data() %>% data.frame() %>% mutate_at(vars("Depth", "Salinity", "Temperature", "Oxygen", "Latitude", "Longitude", "DDT", "DDE", "DDD", "DDMU", "DDX", "PAHs", "PCBs", "TOM", "H2O", "Porosity", "Sand", "Silt_Clay", "Chla", "Phaeo", "CPE", "TOC", "TN", "X13CVPDB", "X15NAir", "Chla_Phae", "Nema_Count"), as.numeric)-> env_df
+env_df <- env_df %>% select("Depth", "Salinity", "Temperature", "Oxygen", "Latitude", "Longitude", "DDT", "DDE", "DDD", "DDMU", "DDX", "PAHs", "PCBs", "TOM", "H2O", "Porosity", "Sand", "Silt_Clay", "Chla", "Phaeo", "CPE", "TOC", "TN", "X13CVPDB", "X15NAir", "Chla_Phae") %>% decostand("range")
+#otu table only
+df %>% otu_table() %>% t() -> df1
+df %>% tax_glom("Taxon20") %>% otu_table() %>% t() -> df1
+
+#formula, data, 
+dbrda(df1 ~ DDX, data = env_df, distance = "bray") -> dbrda_res
+
+#formula 2
+dbrda(df1 ~ DDX + DDE, data = env_df, distance = "bray") -> dbrda_res
+plot(dbrda02) #plot
+anova(dbrda02) #check sig
+
+#formula3 #bioenv vars
+dbrda(df1 ~ TOM + Chla + Phaeo + CPE, data = env_df, distance = "bray") -> dbrda_res #bioenv vars
+summary(dbrda_res)
+plot(dbrda_res) -> dbrda_plot #plot
+anova(dbrda_res)
+
+##plot better
+#but can't figure out how to add vectors
+data.frame(dbrda_plot$sites, dbrda_plot$biplot) %>% rownames_to_column()-> dbrda_df
+sample_data(df) %>% data.frame() %>% rownames_to_column()-> df2  
+merge(dbrda_df, df2, by = "rowname") -> dbrda_df
+ggplot( data = dbrda_df, aes(x = dbRDA1, y = dbRDA2, color = Zone, shape = Dive))+
+  geom_point()
+#new package to add vectors -- both work
+ggord(dbrda_res)+
+  geom_point(aes(color = sample_data(df)$Zone))
+
+###species scores?
+ddt_phylo_norm_euks_nema %>% subset_samples(Barrel_Background == "Barrel" & Core_Fraction == "0_2") -> df3
+sppscores(dbrda_res) <- wisconsin(t(otu_table(df3)))
+ggord(dbrda_res, sample_data(df)$Zone)
+
+
+
+## better species scores
+otu_table(tax_glom(df3, "Taxon20")) %>% data.frame() %>% rownames_to_column() -> df4
+tax_glom(df3, "Taxon20") %>% tax_table() %>% data.frame() %>% rownames_to_column()-> hashnames
+hashnames %>% select(c("rowname", "Taxon20")) -> hashnames
+str_remove(hashnames$Taxon20, "D_19__") -> hashnames$Taxon20
+merge(hashnames, df4) %>% t() -> df4
+colnames(df4) <- df4["Taxon20",]
+df4 <- df4[-c(1:2),]
+#make numeric
+#df4 %>% as.numeric() -> df4 this made it into a long long vector
+#as.data.frame(lapply(df4, type.convert, as.is = TRUE)) -> test this didn't work either made 1 long horizontal vector
+as.data.frame(apply(df4, 2, as.numeric)) -> df4
+df4 %>% decostand("total") %>% sqrt() -> sppscores(dbrda_res)
+#plot
+ordiplot(dbrda_res) |>
+  points("sites", pch = 21, col = "lightblue", bg = "goldenrod") |>
+  text("species", col="navy", cex=0.4) 
+  
+
+###basically same, give capscale a shot and see -- already added species scores on
+capscale(df1 ~ DDX + DDE, data = env_df, distance = "bray") -> capscale_res
+ordiplot(capscale_res) |>
+  text("species", col="navy", cex=0.4)
+```
+
+
+Try some more stat analysis of species
+-SIMPER?
+-indic species?
+
+Try to adapt code from zoop depth metaB/biomass plot 
+```{r}
+#initialize df
+ddt_phylo_norm_euks_nema %>% subset_samples(Barrel_Background == "Barrel")  %>% filter_taxa(function(x) sum(x) > 30 , TRUE) -> df
+ddt_phylo_norm_euks_nema %>% subset_samples(Barrel_Background == "Barrel") %>% filter_taxa(function(x) sum(x) > 30 , TRUE)  %>% transform_sample_counts(function(x) x / sum(x) ) -> df
+
+#need to add actual numeric depths
+sample_data(df)$Max_Depth <- NA
+sample_data(df)$Min_Depth <- NA
+for(i in c(1:nrow(sample_data(df)))){
+  str_sub(sample_data(df)$Core_Fraction[i], start = 1L, end = -3) %>% as.numeric() -> sample_data(df)$Min_Depth[i]
+  str_sub(sample_data(df)$Core_Fraction[i], start = 3, end = 3) %>% as.numeric() -> sample_data(df)$Max_Depth[i]
+}
+
+#add binwidths & midpoints for plotting
+sample_data(df)$BinWidth <- sample_data(df)$Max_Depth - sample_data(df)$Min_Depth
+sample_data(df)$Midpoint <- (sample_data(df)$BinWidth/2) + sample_data(df)$Min_Depth
+
+
+#melt and filter
+df %>% psmelt() -> mdf
+#set limits & and make PCR replicate 1 negative
+disp1 <- max(mdf$Abundance)*1.1 
+mdf$Abundance[mdf$PCR_Replicate == "1"] <- mdf$Abundance[mdf$PCR_Replicate == "1"]*-1 
+mdf$Nema_Count <- as.numeric(mdf$Nema_Count)
+mdf$Nema_Count[mdf$PCR_Replicate == "1"] <- mdf$Nema_Count[mdf$PCR_Replicate == "1"]*-1 
+
+#if relative abundance, geom_point( y = Nema_Count/1500) ; sec_axis(~.*1500)
+#if full abundance, ( y = Nema_Count*4) ; sec_axis(~.*4)
+ggplot(mdf, aes(width = BinWidth*.9)) +
+  annotate("rect", xmin = -Inf, xmax = Inf, ymin =  -Inf, ymax = 0, fill = "grey60", alpha = 0.5) +
+  geom_bar(aes(x = Midpoint, y = Abundance, fill = Taxon20), stat = "identity")+ 
+  geom_point(aes(x = Midpoint, y = Nema_Count*4), size = .5) + #,group=DielPattern
+  geom_line(aes(x = Midpoint, y = Nema_Count*4, group = PCR_Replicate)) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 4), limits = c(-disp1, disp1), labels=abs, sec.axis = sec_axis(~.*1500, name = bquote('Nematode Count'), scales::pretty_breaks(n = 4), labels = abs)) + #define the name of your second axis
+  #scale_y_continuous(breaks = scales::pretty_breaks(n = 4), limits = c(-disp1, disp1))+
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90)) +
+  #scale_fill_brewer(type = "qual", palette = "Set1") + #fill for each species is different, using a rcolorbrewer palette called "Set1"
+  #scale_color_manual(values = "black", name = paste('Zooscan biomass', sep = '')) +# name = bquote(atop('Zooscan Biomass ', (mgC/m^2)))) +  #color for the zooscan biomass is black
+  coord_flip() + 
+  scale_x_reverse() + 
+  labs(x = "Depth (m)", y = "Relative abundance of 18S sequences") + 
+  geom_hline(yintercept = 0, linewidth = 0.2)+
+  facet_grid(~Barrel_ID + Zone, scales="free_x")
+
+
+##replotting by other vars so condensing counts & doing relative abundance last
+
+ddt_phylo_norm_euks_nema %>% subset_samples(Barrel_Background == "Barrel") %>% speedyseq::merge_samples2(group = c("Zone", "Core_Fraction"), fun_otu = sum) %>%  filter_taxa(function(x) sum(x) > 30 , TRUE)  %>% transform_sample_counts(function(x) x / sum(x) ) -> df
+
+df %>% dplyr::group_by("Core_Fraction") %>% speedyseq::merge_samples2(group = "Zone", fun_otu = sum)
+
+ggplot(mdf, aes(width = BinWidth*.9)) +
+  annotate("rect", xmin = -Inf, xmax = Inf, ymin =  -Inf, ymax = 0, fill = "grey60", alpha = 0.5) +
+  geom_bar(aes(x = Midpoint, y = Abundance, fill = Taxon20), stat = "identity")+ 
+  geom_point(aes(x = Midpoint, y = Nema_Count*4), size = .5) + #,group=DielPattern
+  geom_line(aes(x = Midpoint, y = Nema_Count*4, group = PCR_Replicate)) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 4), limits = c(-disp1, disp1), labels=abs, sec.axis = sec_axis(~.*1500, name = bquote('Nematode Count'), scales::pretty_breaks(n = 4), labels = abs)) + #define the name of your second axis
+  #scale_y_continuous(breaks = scales::pretty_breaks(n = 4), limits = c(-disp1, disp1))+
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90)) +
+  #scale_fill_brewer(type = "qual", palette = "Set1") + #fill for each species is different, using a rcolorbrewer palette called "Set1"
+  #scale_color_manual(values = "black", name = paste('Zooscan biomass', sep = '')) +# name = bquote(atop('Zooscan Biomass ', (mgC/m^2)))) +  #color for the zooscan biomass is black
+  coord_flip() + 
+  scale_x_reverse() + 
+  labs(x = "Depth (m)", y = "Relative abundance of 18S sequences") + 
+  geom_hline(yintercept = 0, linewidth = 0.2)+
+  facet_grid(~Zone, scales="free_x")
+
+```
+
+
+
+
+
+
+
