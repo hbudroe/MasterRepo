@@ -1,0 +1,14 @@
+### Small file for initially obtaining the raw ddt fastq files from mars8180 teaching cluster
+
+#Login to xfer node
+#Transfer zipped file from my ddt-project/data folder in the teaching cluster (originally copied from instructor data)
+```
+scp -r -p /home/hmb25721/ddt-project/data/ddt-raw-fastq.tar.gz sapelo2.gacrc.uga.edu:
+```
+#Login to sapelo2 
+#Move (not copy) file from home to the ddt_project/data folder in my home dir
+#Unzip the tar file
+```
+mv ddt-raw-fastq.tar.gz ddt_project/data/
+tar -xvzf ddt-raw-fastq.tar.gz
+```
