@@ -33,9 +33,36 @@ cat ddt_project/results/01-convert-to-qiime.qza  | head -n 8
 ### 05 - assign taxonomy using blast in qiime2
   Use new modified silva database from Tiago Mar-10-2025 currently stored in /project folder (can only be accessed via xfer node [txfer is teaching transfer node silly)
   Database paths: /project/hmblab/lab_shared/silva-taxonomy/ref-dbs/SILVA138-nr99_fixed_strings_custom_seq_sequences-Mar-10-2025.qza &  SILVA138-nr99_fixed_strings_custom_seq_taxonomy-Mar-10-2025.qza
+  Also 05.1 - assign taxonomy with 80% similarity (blast-80-1)
   ```
 #while logged into xfer node:
 cp /project/hmblab/lab_shared/silva-taxonomy/ref-dbs/SILVA138-nr99_fixed_strings_custom_seq_sequences-Mar-10-2025.qza /home/hmb25721/ddt_project/databases
 cp /project/hmblab/lab_shared/silva-taxonomy/ref-dbs/SILVA138-nr99_fixed_strings_custom_seq_taxonomy-Mar-10-2025.qza /home/hmb25721/ddt_project/databases
 ```
   Then run script 05 using the new database paths as input
+Below are some comments that included on my original script that I think are the reason for the immediate job failure but hepful for my brain to undersatnd
+  ```
+qiime feature-classifier classify-consensus-blast \
+  --i-query ${INPUT} \   #input sequence table
+  --i-reference-taxonomy ${REFTAX} \ #reference tax labels
+  --i-reference-reads ${REFSEQ} \ #reference sequences
+  --p-maxaccepts 1 \ #max number hits to keep (default 10)
+  --p-perc-identity 0.90 \ #reject of %identity lower
+  --o-classification ${CLASS} \  #output taxonomy classifications
+  --o-search-results ${SEARCH} \ #top hits for each query
+  --p-num-threads 12
+# --i = inputs ; --p = parameters ; --o = outputs
+```
+# 06 - build phylogenetic tree
+  For this one, there was no reference script for mars8180 (we just downloaded an existing tree from instructor data), so try bulding own & troubleshoot as needed
+  Troubleshooting : failed the 1st time --> --p-num-threads change to --p-n-threads
+  But it worked the second time! woohoo
+
+In the interim, download the asv/tax/metadata
+```
+#From the teaching cluster download the metadata
+scp hmb25721@txfer.gacrc.uga.edu:/work/mars8180/instructor_data/metabarcoding-datasets/ddt-project/metadata/2025-01-03-ddt-metadata.csv .
+#From my home directory download the asv feature table & assigned taxonomy
+scp hmb25721@xfer.gacrc.uga.edu:/home/hmb25721/ddt_project/results/04-dada2-feature-table.qza .
+scp hmb25721@xfer.gacrc.uga.edu:/home/hmb25721/ddt_project/results/05-taxonomy-blast-90-1.qza .
+```
