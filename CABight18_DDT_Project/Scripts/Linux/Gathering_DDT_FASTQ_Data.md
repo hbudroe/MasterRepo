@@ -57,7 +57,16 @@ qiime feature-classifier classify-consensus-blast \
   For this one, there was no reference script for mars8180 (we just downloaded an existing tree from instructor data), so try bulding own & troubleshoot as needed
   Troubleshooting : failed the 1st time --> --p-num-threads change to --p-n-threads
   But it worked the second time! woohoo
-
+```
+qiime phylogeny align-to-tree-mafft-fasttree \
+  --i-sequences ${INPUT} \
+  --o-alignment ${ALIGNMENT} \
+  --o-masked-alignment ${MASKEDALIGNMENT} \
+  --o-tree ${UNROOTEDTREE} \
+  --o-rooted-tree ${ROOTEDTREE} \
+  --output-dir ${OUTPUT} \
+  --p-n-threads 12
+```
 In the interim, download the asv/tax/metadata
 ```
 #From the teaching cluster download the metadata
@@ -65,4 +74,14 @@ scp hmb25721@txfer.gacrc.uga.edu:/work/mars8180/instructor_data/metabarcoding-da
 #From my home directory download the asv feature table & assigned taxonomy
 scp hmb25721@xfer.gacrc.uga.edu:/home/hmb25721/ddt_project/results/04-dada2-feature-table.qza .
 scp hmb25721@xfer.gacrc.uga.edu:/home/hmb25721/ddt_project/results/05-taxonomy-blast-90-1.qza .
+```
+
+# 06.1 - build phylogenetic tree using qiime2::iqtree
+  There are some (possible) issues with the phylogeny built in the fasttree tree... For ex, Gammanema doesn't appear placed with the other genus in its family (Selachinematidae:Halichoanolaimus) -- this could be an issue with taxonomy assignment or the tree. Rebuilding the phylotree using a better algorithm to assess & for future phylogenetic analyses.
+  iqtree requires a multiple sequence alignment as input. Thankfully, the fasttree command I ran previously already output an alignment (alongside the tree) using mafft so I can use that as input instead of running de novo msa with mafft.
+```
+qiime phylogeny iqtree \
+        --i-alignment ${INPUT}\
+        --p-lbp 10000 \
+        --o-tree ${OUTPUT}
 ```
