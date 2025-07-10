@@ -53,7 +53,7 @@ qiime feature-classifier classify-consensus-blast \
   --p-num-threads 12
 # --i = inputs ; --p = parameters ; --o = outputs
 ```
-# 06 - build phylogenetic tree
+### 06 - build phylogenetic tree
   For this one, there was no reference script for mars8180 (we just downloaded an existing tree from instructor data), so try bulding own & troubleshoot as needed
   Troubleshooting : failed the 1st time --> --p-num-threads change to --p-n-threads
   But it worked the second time! woohoo
@@ -76,7 +76,7 @@ scp hmb25721@xfer.gacrc.uga.edu:/home/hmb25721/ddt_project/results/04-dada2-feat
 scp hmb25721@xfer.gacrc.uga.edu:/home/hmb25721/ddt_project/results/05-taxonomy-blast-90-1.qza .
 ```
 
-# 06.1 - build phylogenetic tree using qiime2::iqtree
+### 06.1 - build phylogenetic tree using qiime2::iqtree
   There are some (possible) issues with the phylogeny built in the fasttree tree... For ex, Gammanema doesn't appear placed with the other genus in its family (Selachinematidae:Halichoanolaimus) -- this could be an issue with taxonomy assignment or the tree. Rebuilding the phylotree using a better algorithm to assess & for future phylogenetic analyses.
   iqtree requires a multiple sequence alignment as input. Thankfully, the fasttree command I ran previously already output an alignment (alongside the tree) using mafft so I can use that as input instead of running de novo msa with mafft.
 ```
@@ -85,3 +85,15 @@ qiime phylogeny iqtree \
         --p-lbp 10000 \
         --o-tree ${OUTPUT}
 ```
+### Miscellaneous scripts/commands
+- Want to access the actual sequences for ASVs so I can blast for identity. I think I can find those in the rep-seq.qza file, so export into an easier to read/access fasta file, export to desktop, and open in texteditor & ctrlF for interested ASVs into BLAST
+
+```
+qlogin #start interactive node
+module load QIIME2/2024.10-amplicon #load qiime2 
+qiime tools export   --input-path /home/hmb25721/ddt_project/results/04-dada2-rep-seq.qza -output-path /home/hmb25721/ddt_project/results/04.1-dada2-rep-seq.fasta #found this command to export/transform .qza into fasta
+
+#now transfer this to my Desktop
+scp hmb25721@xfer.gacrc.uga.edu:/home/hmb25721/ddt_project/results/04.1-dada2-rep-seq.fasta/dna-sequences.fasta .
+```
+
