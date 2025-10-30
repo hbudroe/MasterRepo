@@ -125,13 +125,13 @@ Create phyloseq object! ----
 ```{r}
 ###Create phyloseq components
 physeq_otu <- otu_table(asv_df, taxa_are_rows = T) 
-physeq_tax <- tax_table(taxonomy_matrix) 
+physeq_tax <- as.matrix(taxonomy_fixed_df) %>% tax_table()
 physeq_meta <- sample_data(metadata) 
 
 ###merge into a phyloseq object!
 phylo_object <- phyloseq(physeq_otu, physeq_tax, physeq_meta) 
-phylo_object_tree <- merge_phyloseq(phylo_object, phylo_tree) # add tree
-
+#phylo_object_tree <- merge_phyloseq(phylo_object, phylo_tree) # add tree
+phylo_object -> phylo_object_tree #temporary rename for before tree added
 ```
 
 Run the decontam pipeline (code directly from mars8180 github/alejandro)

@@ -1,0 +1,193 @@
+This is a script (in a larger series of broken down scripts containing analysis of the DDT Barrels (2021 samples) project. This script is doing analysis of the physical/chemical environment. The script generates plots.
+Author: Hannah Budroe
+Start Date: 10/30/25
+
+Plot Chemical Concentrations for Barrels ----
+Make a boxplot for chemical concentrations for each barrel : 1 figure / different chemical, faceted by core fraction, x = Unique_Barrel
+```{r}
+###Start with the sample data of phyloseq object
+ddt_phylo_norm_euks_nema %>% sample_data() -> chem_df
+#plot each compound separately, wrap ~ corefraction
+
+#plot DDT
+ggplot(data = chem_df, aes(x = Unique_Barrel, y = DDT, color = Dive))+
+  geom_boxplot()+
+  facet_wrap(~Core_Fraction)+
+  theme_minimal()+  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  labs(x = "Barrel", y = "[DDT] ng/g")
+#plot DDX
+ggplot(data = chem_df, aes(x = Unique_Barrel, y = DDX, color = Dive))+
+  geom_boxplot()+
+  facet_wrap(~Core_Fraction)+
+  theme_minimal()+  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  labs(x = "Barrel", y = "[DDX] ng/g")
+#plot DDD
+ggplot(data = chem_df, aes(x = Unique_Barrel, y = DDD, color = Dive))+
+  geom_boxplot()+
+  facet_wrap(~Core_Fraction)+
+  theme_minimal()+  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  labs(x = "Barrel", y = "[DDD] ng/g")
+#plot DDE
+ggplot(data = chem_df, aes(x = Unique_Barrel, y = DDE, color = Dive))+
+  geom_boxplot()+
+  facet_wrap(~Core_Fraction)+
+  theme_minimal()+  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  labs(x = "Barrel", y = "[DDE] ng/g")
+#plot DDMU
+ggplot(data = chem_df, aes(x = Unique_Barrel, y = DDMU, color = Dive))+
+  geom_boxplot()+
+  facet_wrap(~Core_Fraction)+
+  theme_minimal()+  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  labs(x = "Barrel", y = "[DDMU] ng/g")
+#plot PAHs
+ggplot(data = chem_df, aes(x = Unique_Barrel, y = PAHs, color = Dive))+
+  geom_boxplot()+
+  facet_wrap(~Core_Fraction)+
+  theme_minimal()+  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  labs(x = "Barrel", y = "[PAHs] ng/g")
+#plot PCBs
+ggplot(data = chem_df, aes(x = Unique_Barrel, y = PCBs, color = Dive))+
+  geom_boxplot()+
+  facet_wrap(~Core_Fraction)+
+  theme_minimal()+  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  labs(x = "Barrel", y = "[PCBs] ng/g")
+
+#out of curiousity, also plot sed characteristics
+#plot Porosity
+ggplot(data = chem_df, aes(x = Unique_Barrel, y = Porosity, color = Dive))+
+  geom_boxplot()+
+  facet_wrap(~Core_Fraction)+
+  theme_minimal()+  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  labs(x = "Barrel", y = "Sediment Porosity %")
+#plot CPE
+ggplot(data = chem_df, aes(x = Unique_Barrel, y = CPE, color = Dive))+
+  geom_boxplot()+
+  facet_wrap(~Core_Fraction)+
+  theme_minimal()+  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  labs(x = "Barrel", y = "Chloroplast Pigment Equivalents")
+#plot TOM
+ggplot(data = chem_df, aes(x = Unique_Barrel, y = TOM, color = Dive))+
+  geom_boxplot()+
+  facet_wrap(~Core_Fraction)+
+  theme_minimal()+  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  labs(x = "Barrel", y = "Total Organic Matter %")
+#plot X13CVPDB
+ggplot(data = chem_df, aes(x = Unique_Barrel, y = X13CVPDB, color = Dive))+
+  geom_boxplot()+
+  facet_wrap(~Core_Fraction)+
+  theme_minimal()+  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  labs(x = "Barrel", y = "Delta 13C per mil")
+#plot X15NAir
+ggplot(data = chem_df, aes(x = Unique_Barrel, y = X15NAir, color = Dive))+
+  geom_boxplot()+
+  facet_wrap(~Core_Fraction)+
+  theme_minimal()+  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  labs(x = "Barrel", y = "Delta 15N per mil")
+
+```
+
+
+PCA of environmental vars ----
+Look at important environmental variables
+- PCA on each core_fraction & to potentially use for reduced dimension analysis
+- also to identify potential variables for constrained analysis
+```{r}
+###Run PCA on individual core_fractions
+#Set whatever pseq object I am interested in
+ddt_phylo_norm_euks_nema_02 %>% subset_samples(Barrel_Background == "Barrel") -> df
+ddt_phylo_norm_euks_nema_24 %>% subset_samples(Barrel_Background == "Barrel") -> df
+ddt_phylo_norm_euks_nema_46 %>% subset_samples(Barrel_Background == "Barrel") -> df
+ddt_phylo_norm_euks_nema_68 %>% subset_samples(Barrel_Background == "Barrel") -> df
+
+#Select environmental variables of interest
+env_df <- data.frame(sample_data(df))[, c("Depth", "Salinity", "Temperature", "Oxygen", "Latitude", "Longitude", "DDT", "DDE", "DDD", "DDMU", "DDX", "PAHs", "PCBs", "TOM", "H2O", "Porosity", "Sand", "Silt_Clay", "Chla", "Phaeo", "CPE", "TOC", "TN", "X13CVPDB", "X15NAir", "Chla_Phae")]
+
+#Remove samples that are same across the dataframe (this originally threw an error for 6_8)
+sd_vals <- apply(env_df, 2, sd)
+nozero_variance_cols <- names(sd_vals)[sd_vals > 0]
+env_df <- env_df[nozero_variance_cols]
+
+#Remove NA rows causing errors
+env_df_nona <- env_df[rowSums(is.na(env_df)) == 0, ]
+xrownames <- rownames(env_df_nona)
+sample_data(df)$SampleID <- paste0(sample_data(df)$Sample, ".", sample_data(df)$PCR_Replicate)
+subset_samples(df, SampleID %in% xrownames) -> phy_filt
+#core_fraction <- sample_data(phy_filt)$Core_Fraction #create vectors of categories
+zone <- sample_data(phy_filt)$Zone # ^^
+```
+
+
+```{r}
+#define df with only numerics
+df %>% sample_data() %>% data.frame() %>% mutate_at(vars("Depth", "Salinity", "Temperature", "Oxygen", "Latitude", "Longitude", "DDT", "DDE", "DDD", "DDMU", "DDX", "PAHs", "PCBs", "TOM", "H2O", "Porosity", "Sand", "Silt_Clay", "Chla", "Phaeo", "CPE", "TOC", "TN", "X13CVPDB", "X15NAir", "Chla_Phae", "Nema_Count"), as.numeric) -> env_df
+env_df <- env_df[, c("Depth", "Salinity", "Temperature", "Oxygen", "Latitude", "Longitude", "DDT", "DDE", "DDD", "DDMU", "DDX", "PAHs", "PCBs", "TOM", "H2O", "Porosity", "Sand", "Silt_Clay", "Chla", "Phaeo", "CPE", "TOC", "TN", "X13CVPDB", "X15NAir", "Chla_Phae")]
+
+#remove samples that are uniform across the dataframe (threw an error for 6_8 DDT...)
+sd_vals <- apply(env_df, 2, sd)
+nozero_variance_cols <- names(sd_vals)[sd_vals > 0]
+env_df <- env_df[nozero_variance_cols]
+#remove NAs causing error
+env_df_nona <- env_df[rowSums(is.na(env_df)) == 0, ]
+xrownames <- rownames(env_df_nona)
+sample_data(df)$SampleID <- paste0(sample_data(df)$Sample, ".", sample_data(df)$PCR_Replicate)
+subset_samples(df, SampleID %in% xrownames) -> phy_filt
+#core_fraction <- sample_data(phy_filt)$Core_Fraction #create vectors of categories
+zone <- sample_data(phy_filt)$Zone # ^^
+#run pca
+pca_mzg <- prcomp(env_df_nona, scale. = TRUE)
+summary(pca_mzg)
+scree_data <- data.frame(
+  Component = 1:length(pca_mzg$sdev),
+  Variance = pca_mzg$sdev^2 / sum(pca_mzg$sdev^2)
+)
+ggplot(scree_data, aes(x = Component, y = Variance)) +  #plot proportion variance explained by each PC dim (scree plot)
+  geom_bar(stat = "identity", fill = "steelblue") +
+  geom_line() +
+  geom_point() +
+  xlab("Principal Components") +
+  ylab("Proportion of Variance Explained") +
+  ggtitle("Scree Plot")
+
+pca_mzg_vars <- get_pca_var(pca_mzg) #factoextra:: tells how individual vars contribute to each pc dim
+head(pca_mzg_vars$contrib, 7)
+fviz_contrib(pca_mzg, choice = "var", axes = 1, top = 15) -> p1 #visualizes contribution to pc1
+fviz_contrib(pca_mzg, choice = "var", axes = 2, top = 10) -> p2 # ^^ pc2  
+p1+p2
+#plot
+ggbiplot(pca_mzg, obs.scale = 1, var.scale = 1)+
+  geom_point(aes(color = zone, size = 2))+
+  theme_light()#+
+  stat_ellipse(geom = "polygon", aes(group = factor(core_fraction), fill = factor(core_fraction), alpha = 0.25), linetype = 1)
+  
+  
+###Can I try to plot PCA scores?
+#extract scores & groupings
+##x = scores
+data.frame(pca_mzg$x) %>% rownames_to_column() -> PCA.scores
+sample_data(df) %>% data.frame() %>% rownames_to_column()-> df2  
+merge(PCA.scores, df2, by = "rowname") -> PCA_score_env # together PCA scores & env groupings
+#try plotting PCA scores by groupings
+ggplot(data = PCA_score_env, aes(x = Site, y = PC2)) +
+geom_boxplot() +
+geom_jitter(aes(colour = Zone), width = 0.3, height = 0) +
+theme_bw()
+
+###more pca plotting
+fviz_pca_var(pca_mzg,
+             col.var = "contrib", # Color by contributions to the PC
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE     # Avoid text overlapping
+             )
+````

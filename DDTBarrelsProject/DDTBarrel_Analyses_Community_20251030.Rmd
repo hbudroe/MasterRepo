@@ -1,0 +1,85 @@
+This is a script (in a larger series of broken down scripts containing analysis of the DDT Barrels (2021 samples) project. This script is doing community-level analyses & clustering. The script generates plots.
+Author: Hannah Budroe
+Start Date: 10/30/25
+
+NMDS Clustering All Euks ----
+```{r}
+###Plain NMDS no transformation
+set.seed(1234)
+ord <- ordinate(ddt_phylo_norm_euks, "NMDS", "bray", k=3, permutations=999) #ordinate
+plot_ordination(ddt_phylo_norm_euks, ord, type="samples", color="Core_Fraction", shape = "Zone")+
+  theme(axis.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        panel.background = element_blank(), panel.border = element_rect(fill = NA, colour = "grey30"), 
+        axis.ticks = element_blank(), axis.text = element_blank(), legend.key = element_blank(), 
+        legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 9, colour = "grey30"))+
+  facet_grid(. ~Core_Fraction,scales = "free_x")
+
+###Hellinger-transformed 
+set.seed(1234)
+phy_hel <- microbiome::transform(ddt_phylo_norm_euks, "hellinger") #from tiago
+ord <- ordinate(phy_hel, "NMDS", "bray", k=3, permutations=999) 
+plot_ordination(phy_hel, ord, type="samples", color="Core_Fraction", shape = "Zone")+
+  theme(axis.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        panel.background = element_blank(), panel.border = element_rect(fill = NA, colour = "grey30"), 
+        axis.ticks = element_blank(), axis.text = element_blank(), legend.key = element_blank(), 
+        legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 9, colour = "grey30"))+
+  facet_grid(. ~Core_Fraction,scales = "free_x")
+```
+
+NMDS Clustering All Meio ----
+```{r}
+###Plain NMDS no transformation
+set.seed(1234)
+ord <- ordinate(ddt_phylo_norm_euks_meio, "NMDS", "bray", k=3, permutations=999) #ordinate
+plot_ordination(ddt_phylo_norm_euks_meio, ord, type="samples", color="Core_Fraction", shape = "Zone")+
+  theme(axis.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        panel.background = element_blank(), panel.border = element_rect(fill = NA, colour = "grey30"), 
+        axis.ticks = element_blank(), axis.text = element_blank(), legend.key = element_blank(), 
+        legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 9, colour = "grey30"))+
+  facet_grid(. ~Core_Fraction,scales = "free_x")
+
+###Hellinger-transformed 
+set.seed(1234)
+phy_hel <- microbiome::transform(ddt_phylo_norm_euks_meio, "hellinger") #from tiago
+ord <- ordinate(phy_hel, "NMDS", "bray", k=3, permutations=999) 
+plot_ordination(phy_hel, ord, type="samples", color="Dive", shape = "Zone")+
+  theme(axis.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        panel.background = element_blank(), panel.border = element_rect(fill = NA, colour = "grey30"), 
+        axis.ticks = element_blank(), axis.text = element_blank(), legend.key = element_blank(), 
+        legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 9, colour = "grey30"))+
+  facet_grid(. ~Core_Fraction,scales = "free_x")
+```
+
+NMDS Clustering Only Nems
+```{r}
+###Plain NMDS no transformation
+set.seed(1234)
+ord <- ordinate(ddt_phylo_norm_nema, "NMDS", "bray", k=3, permutations=999) #ordinate
+plot_ordination(ddt_phylo_norm_euks, ord, type="samples", color="Core_Fraction", shape = "Zone")+
+  theme(axis.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        panel.background = element_blank(), panel.border = element_rect(fill = NA, colour = "grey30"), 
+        axis.ticks = element_blank(), axis.text = element_blank(), legend.key = element_blank(), 
+        legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 9, colour = "grey30"))+
+  facet_grid(. ~Core_Fraction,scales = "free_x")
+
+###Hellinger-transformed 
+set.seed(1234)
+phy_hel <- microbiome::transform(ddt_phylo_norm_euks_nema, "hellinger") #from tiago
+ord <- ordinate(phy_hel, "NMDS", "bray", k=3, permutations=999) 
+plot_ordination(phy_hel, ord, type="samples", color="Core_Fraction", shape = "Zone")+
+  theme(axis.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        panel.background = element_blank(), panel.border = element_rect(fill = NA, colour = "grey30"), 
+        axis.ticks = element_blank(), axis.text = element_blank(), legend.key = element_blank(), 
+        legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 9, colour = "grey30"))+
+  facet_grid(. ~Core_Fraction,scales = "free_x")
+
+###Ordinate each core_fraction separately
+```
+
+

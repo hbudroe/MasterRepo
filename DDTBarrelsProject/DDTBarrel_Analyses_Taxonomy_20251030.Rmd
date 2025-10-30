@@ -1,0 +1,5 @@
+This is a script (in a larger series of broken down scripts containing analysis of the DDT Barrels (2021 samples) project. This script is doing analysis of taxonomic composition. The script generates plots.
+Author: Hannah Budroe
+Start Date: 10/30/25
+
+

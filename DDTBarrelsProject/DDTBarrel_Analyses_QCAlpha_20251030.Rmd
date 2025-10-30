@@ -1,0 +1,59 @@
+---
+title: "DDTBarrel_Analyses_QCAlpha"
+author: "Hannah Budroe"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+This is a script (in a larger series of broken down scripts containing analysis of the DDT Barrels (2021 samples) project. This script is for performing some initial data QC on the final phyloseq object & doing basic alpha diversity analyses. The script starts with a phyloseq object and results in alpha div plots.
+Author: Hannah Budroe
+Start Date: 10/30/25
+
+
+Secondary data QC after filtering (Check read depths) ---
+```{r}
+###Quick QC check look at sample abundances before/after subsetting nemas
+samplesum_df <- data.frame(phyloseq::sample_data(ddt_phylo_norm_euks),
+       "Total_Euk_Reads" = phyloseq::sample_sums(ddt_phylo_norm_euks),
+       "Observed_Euk_ASVs" = phyloseq::estimate_richness(ddt_phylo_norm_euks, measures = "Observed"),
+       "Total_Meio_Reads" = phyloseq::sample_sums(ddt_phylo_norm_euks_meio),
+       "Observed_Meio_ASVs" = phyloseq::estimate_richness(ddt_phylo_norm_euks_meio, measures = "Observed")
+        "Total_Nema_Reads" = phyloseq::sample_sums(ddt_phylo_norm_euks_nema),
+        "Observed_Nema_ASVs" = phyloseq::estimate_richness(ddt_phylo_norm_euks_nema, measures = "Observed"))
+samplesum_df %>% pivot_longer(cols = c("Total_Euk_Reads", "Total_Nema_Reads")) -> samplesum_df 
+#plot
+ggplot(data = samplesum_df, aes(x = Sample, y = value, color = name))+
+  geom_point()+
+  facet_grid(~Core_Fraction, scales = "free_x") #+Zone
+```
+
+Create dataframe with alpha diversity measures for downstream analysis/better plotting
+```{r}
+### Build a df for better alpha plotting -code from 8180
+#all euks
+df <- ddt_phylo_norm_euks #temp rename pseq for brevity
+alpha_div_euks <- data.frame(phyloseq::sample_data(df), # get metadata
+  "Reads" = phyloseq::sample_sums(df), # number of reads
+  "Observed" = phyloseq::estimate_richness(df, measures = "Observed"),
+  "Shannon" = phyloseq::estimate_richness(df, measures = "Shannon"),
+  "InvSimpson" = phyloseq::estimate_richness(df, measures = "InvSimpson")) 
+alpha_div_euks$Evenness <- alpha_div_euks$Shannon/log(alpha_div_euks$Observed) #calc evenness
+df <- ddt_phylo_norm_euks_meio #temp rename pseq for brevity
+alpha_div_meio <- data.frame(phyloseq::sample_data(df), # get metadata
+  "Reads" = phyloseq::sample_sums(df), # number of reads
+  "Observed" = phyloseq::estimate_richness(df, measures = "Observed"),
+  "Shannon" = phyloseq::estimate_richness(df, measures = "Shannon"),
+  "InvSimpson" = phyloseq::estimate_richness(df, measures = "InvSimpson")) 
+alpha_div_meio$Evenness <- alpha_div_meio$Shannon/log(alpha_div_meio$Observed) #calc evenness
+
+#nems
+df <- ddt_phylo_norm_euks_nema #temp rename pseq for brevity
+alpha_div_nema <- data.frame(phyloseq::sample_data(df), # get metadata
+  "Reads" = phyloseq::sample_sums(df), # number of reads
+  "Observed" = phyloseq::estimate_richness(df, measures = "Observed"),
+  "Shannon" = phyloseq::estimate_richness(df, measures = "Shannon"),
+  "InvSimpson" = phyloseq::estimate_richness(df, measures = "InvSimpson")) 
+alpha_div_nema$Evenness <- alpha_div_nema$Shannon/log(alpha_div_nema$Observed) #calc evenness
+```
+
+Insert alpha diversity plots here
