@@ -1,0 +1,225 @@
+This is a script (in a larger series of broken down scripts containing analysis of the DDT Barrels (2021 samples) project. This script is for reading in & doing pre-processing/data QC on the qiime2 DDT Barrel outputs. The script ends with a final phyloseq object ready for analysis.
+Author: Hannah Budroe
+Start Date: 10/29/25
+
+Install libraries ----
+```{r}
+library(qiime2R)
+library(decontam)
+library(phyloseq)
+library(tidyverse)
+```
+
+Defined Functions ----
+-- Ths function is for normalizing metaB read number to the median read depth -- from Moira Decima
+```{r}
+#Median Normalization from Moira - normalize number of reads to median sampling depth
+phyloseq_normalize_median <- function (ps) { 
+  ps_median = median(sample_sums(ps))
+  normalize_median = function(x, t=ps_median) (if(sum(x) > 0){ round(t * (x / sum(x)))} else {x})
+  ps = transform_sample_counts(ps, normalize_median)
+  cat(str_c("/n========== /n") )
+  print(ps)
+  cat(sprintf("/n==========/nThe median number of reads used for normalization is  %.0f", ps_median))
+  return(ps)
+}
+```
+
+Read in data ----
+```{r}
+###Set path
+path <- ("~/Desktop/UGA/LabLocalFiles/CodingMe/ddt_qiime/")
+asvs <- read_qza(paste0(path, "04-dada2-feature-table.qza")) #Read asv table
+taxonomy <- read_qza(paste0(path,"05.1-taxonomy-blast-90-1-hannahmeiodb.qza")) #Read tax table
+metadata <- read.csv(paste0(path, "2025-01-03-ddt-metadata.csv")) #Read metadata csv
+
+###Leave space here to read in phylogenetic tree tree <- read_qza(paste0(path,
+```
+
+Extract out data from qiime artifacts ----
+```{r}
+###Extract data from .qzas
+asv_df <- asvs$data
+taxonomy_df <- taxonomy$data
+
+###Leave space here to extract tree phylo_tree <- tree$data
+```
+
+Reformat data & add in extra metadata columns ----
+```{r}
+###Reformat taxonomy_df
+head(taxonomy_df) #check the taxonomy structure  -- shows tax strings haven't separated
+#separate out tax strings
+taxonomy_fixed_df <- taxonomy_df %>% separate_wider_delim(Taxon, delim = ";", names_sep = "", too_few = "align_start")
+#replace NA with unassigned
+taxonomy_fixed_df[is.na(taxonomy_fixed_df)] <- "Unassigned"
+taxonomy_fixed_df <- as.data.frame(taxonomy_fixed_df) # force into a dataframe
+row.names(taxonomy_fixed_df) <- taxonomy_fixed_df$Feature.ID # make 1st col into row names
+taxonomy_fixed_df$Feature.ID <- NULL # remove 1st column & keep as a df for $  below
+taxonomy_fixed_df %>% select(starts_with("Taxon")) -> taxonomy_fixed_df #remove consensus column (all 1s)
+#remove the D_x__ for taxonomy
+taxonomy_fixed_df %>% mutate_all(str_replace, ".*__", "") -> taxonomy_fixed_df
+
+###Reformat metadata
+head(metadata)
+#index metadata by the sample ID for later matching when creating phyloseq object
+column_to_rownames(metadata, "Sample_ID") -> metadata
+
+###Adjust/add metadata columns --barrel zone factors,
+
+#Adjust levels for barrel zones
+metadata$Barrel_Zone <- factor(metadata$Barrel_Zone, levels = c("0.1m", "1.0m", "3.0m", "5.0m", ">10m", ">40Km", ">100Km"))
+
+#Add new binary column to define barrels (zones A:D) v background (>10m...)
+metadata$Barrel_Background <- NA
+for(i in c(1:nrow(metadata))){
+  if(metadata$Barrel_Zone[i] %in% c("0.1m", "1.0m", "3.0m", "5.0m")){
+  metadata$Barrel_Background[i] = "Barrel"
+  } else {
+  metadata$Barrel_Background[i] = "Background"
+  } }
+
+#Add letter for barrel zones
+metadata$Zone <- NA
+for(i in c(1:nrow(metadata))){
+  if (metadata$Barrel_Background[i] == "Background"){
+  metadata$Zone[i] = "Background"
+  } else if (metadata$Barrel_Zone[i] == "0.1m") {
+  metadata$Zone[i] = "A"
+  } else if (metadata$Barrel_Zone[i] == "1.0m"){
+    metadata$Zone[i] = "B"
+  } else if (metadata$Barrel_Zone[i] == "3.0m"){
+    metadata$Zone[i] = "C"
+  }else if (metadata$Barrel_Zone[i] == "5.0m"){
+    metadata$Zone[i] = "D"
+  }
+}
+metadata$Zone <- factor(metadata$Zone, levels = c("A", "B", "C", "D", "Background"))
+
+#add in unique barrel identifiers (for dive/barrel combos) - each barrel new#
+metadata$Unique_Barrel <- NA
+for(i in c(1:nrow(metadata))){
+  if (metadata$Barrel_ID[i] == "D450_Background"){
+  metadata$Unique_Barrel[i] = "Background Barrels 1:2"
+  } else if (metadata$Barrel_ID[i] == "D450_Barrel_1") {
+  metadata$Unique_Barrel[i] = "Barrel 1"
+  } else if (metadata$Barrel_ID[i] == "D450_Barrel_2"){
+    metadata$Unique_Barrel[i] = "Barrel 2"
+  } else if (metadata$Barrel_ID[i] == "D451_Background"){
+    metadata$Unique_Barrel[i] = "Background Barrels 3:5"
+  }else if (metadata$Barrel_ID[i] == "D451_Barrel_1"){
+    metadata$Unique_Barrel[i] = "Barrel 3"
+  } else if (metadata$Barrel_ID[i] == "D451_Barrel_2"){
+    metadata$Unique_Barrel[i] = "Barrel 4"
+  } else if (metadata$Barrel_ID[i] == "D451_Barrel_3"){
+    metadata$Unique_Barrel[i] = "Barrel 5"
+  }
+}
+metadata$Unique_Barrel <- factor(metadata$Unique_Barrel, levels = c("Background Barrels 1:2", "Barrel 1", "Barrel 2", "Background Barrels 3:5", "Barrel 3", "Barrel 4", "Barrel 5"))
+
+#make all the concentration/number columns actually numeric (chr when read in bc NA?)
+metadata %>% mutate_at(vars("Depth", "Salinity", "Temperature", "Oxygen", "Latitude", "Longitude", "DDT", "DDE", "DDD", "DDMU", "DDX", "PAHs", "PCBs", "TOM", "H2O", "Porosity", "Sand", "Silt_Clay", "Chla", "Phaeo", "CPE", "TOC", "TN", "X13CVPDB", "X15NAir", "Chla_Phae", "Nema_Count"), as.numeric) -> metadata
+```
+
+Create phyloseq object! ----
+```{r}
+###Create phyloseq components
+physeq_otu <- otu_table(asv_df, taxa_are_rows = T) 
+physeq_tax <- tax_table(taxonomy_matrix) 
+physeq_meta <- sample_data(metadata) 
+
+###merge into a phyloseq object!
+phylo_object <- phyloseq(physeq_otu, physeq_tax, physeq_meta) 
+phylo_object_tree <- merge_phyloseq(phylo_object, phylo_tree) # add tree
+
+```
+
+Run the decontam pipeline (code directly from mars8180 github/alejandro)
+```{r}
+# create a sample-variable for contaminants
+sample_data(phylo_object_tree)$is.neg <- sample_data(phylo_object_tree)$Sample_Control == "Control" 
+# detect contaminants based on control samples and their ASV prevalance
+phylo_object_contaminants <- isContaminant(phylo_object_tree, method = "prevalence", neg="is.neg", 
+                threshold=0.5, detailed = TRUE, normalize = TRUE) 
+# check number of ASVs that are contaminants
+table(phylo_object_contaminants$contaminant) #I got 65 TRUE contaminants
+
+# Make phyloseq object of presence-absence in negative controls and true samples
+phylo_object_contaminants.pa <- transform_sample_counts(phylo_object_tree, function(abund) 1 * (abund > 0)) # convert phyloseq table to presence-absence
+ps.pa.neg <- subset_samples(phylo_object_contaminants.pa, Sample_Control=="Control")
+ps.pa.pos <- subset_samples(phylo_object_contaminants.pa, Sample_Control=="Sample")
+df.pa <- data.frame(pa.pos=taxa_sums(ps.pa.pos), pa.neg=taxa_sums(ps.pa.neg), 
+                    contaminant=phylo_object_contaminants$contaminant) # convert into a dataframe
+
+# Make phyloseq object of presence-absence in negative controls and true samples
+phylo_object_contaminants.pa <- transform_sample_counts(phylo_object_tree, function(abund) 1 * (abund > 0)) # convert phyloseq table to presence-absence
+ps.pa.neg <- subset_samples(phylo_object_contaminants.pa, Sample_Control=="Control")
+ps.pa.pos <- subset_samples(phylo_object_contaminants.pa, Sample_Control=="Sample")
+df.pa <- data.frame(pa.pos=taxa_sums(ps.pa.pos), pa.neg=taxa_sums(ps.pa.neg), 
+                    contaminant=phylo_object_contaminants$contaminant) # convert into a dataframe
+
+# Make phyloseq object of presence-absence in negative controls and true samples
+ggplot(data=df.pa, aes(x=pa.neg, y=pa.pos, color=contaminant)) + geom_point() + 
+  xlab("Prevalence (Negative Controls)") + ylab("Prevalence (True Samples)")
+# remove ASVs identified as decontaminants from the dataset
+phylo_obj_tree_sans_contam <- prune_taxa(!phylo_object_contaminants$contaminant, 
+                                         phylo_object_tree) 
+## Remove blanks and positive controls
+phylo_obj_tree_sans_contam_sans_controls <- subset_samples(phylo_obj_tree_sans_contam, Sample_Control != "Control" & Sample_Type != "PosCtrl" & Sample_Type != "NegCtrl") #I added the subset out +/- controls since that wasn't in the code we ran in class
+
+#let's look at our final decontaminated object -- 198 samples
+phylo_obj_tree_sans_contam_sans_controls
+
+###remove human samples "D_17__Homo sapiens (human)"
+subset_taxa(phylo_obj_tree_sans_contam_sans_controls, Taxon18 != "D_17__Homo sapiens (human)") -> phylo_obj_tree_sans_contam_sans_controls_nohomo
+
+#check final final decontam object
+phylo_obj_tree_sans_contam_sans_controls_nohomo
+```
+
+Save room for data QC (clustering, etc.) here!
+
+Ok now we have an decontaminated phyloseq object with all 1st round DDT samples & updated metadata.
+Next level processing to filter samples & ASVs, normalize data, etc. ----
+```{r}
+### Remove non barrel-proximal (eg. SD Trough) samples by subsetting out DDT Dives
+phylo_obj_tree_sans_contam_sans_controls_nohomo %>% subset_samples(Dive == "S0450" | Dive == "S0451") -> phylo_obj_tree_sans_contam_sans_controls_nohomo_ddtbg 
+
+### Remove singleton ASVs
+taxa_sums(phylo_obj_tree_sans_contam_sans_controls_nohomo_ddtbg) -> tax_counts 
+phylo_obj_tree_sans_contam_sans_controls_nohomo_ddtbg_nosingletons <- prune_taxa(tax_counts > 1, phylo_obj_tree_sans_contam_sans_controls_nohomo_ddtbg)
+
+### Remove low abundance samples 
+lowreads <- 1000
+phylo_obj_tree_sans_contam_sans_controls_nohomo_ddtbg %>% subset_samples(sample_sums(phylo_obj_tree_sans_contam_sans_controls_nohomo_ddtbg) >=lowreads) -> phylo_obj_tree_sans_contam_sans_controls_nohomo_ddtbg_filtered 
+sample_sums(phylo_obj_tree_sans_contam_sans_controls_nohomo_ddtbg_filtered)
+
+###Let's start with names from scratch
+phylo_obj_tree_sans_contam_sans_controls_nohomo_ddtbg_filtered -> ddt_phylo
+
+###Normalize before subsetting taxa
+phyloseq_normalize_median(ddt_phylo) -> ddt_phylo_norm #moira function med seq depth
+
+###Don't merge PCR replicates! I need all the samples I can get since we are separating by core_fraction
+
+###Taxonomic filtering
+#First, remove unassigned at euk kingdom level
+subset_taxa(ddt_phylo_norm, Taxon1 == "Eukaryota") %>% prune_taxa(taxa_sums(.) > 0, .) -> ddt_phylo_norm_euks #D_0__
+get_taxa_unique(ddt_phylo_norm_euks, taxonomic.rank = "Taxon1") #check
+
+#Subset all meiofauna of interest (those i fixed in meiodb hannah's version)
+subset_taxa(ddt_phylo_norm, Taxon14 == "Nematoda" | Taxon14 == "Platyhelminthes" | Taxon14 == "Gastrotricha" | Taxon14 == "Kinorhyncha" | Taxon14 == "Loricifera" | Taxon14 == "Gnathostomulida" | Taxon14 == "Rotifera" | Taxon14 == "Xenacoelomorpha" | Taxon14 == "Tardigrada" | Taxon14 == "Entoprocta" | Taxon14 == "Annelida" | Taxon15 == "Ostracoda" | Taxon17 == "Harpacticoida" | Taxon17 == "Misophrioida" | Taxon15 == "Micrognathozoa") %>% prune_taxa(taxa_sums(.) > 0, .) -> ddt_phylo_norm_euks_meio
+
+#Subset all nemas
+subset_taxa(ddt_phylo_norm_euks, Taxon14 == "Nematoda") %>% prune_taxa(taxa_sums(.) > 0, .) -> ddt_phylo_norm_euks_nema #
+get_taxa_unique(ddt_phylo_norm_euks_nema, taxonomic.rank = "Taxon14") #check
+get_taxa_unique(ddt_phylo_norm_euks_nema, taxonomic.rank = "Taxon22") #unique gen?
+
+###Divide up the dataset by core_fraction/sediment depth (depth is stronger factor > any other environmental var)
+ddt_phylo_norm_euks_nema_02 <-  subset_samples(ddt_phylo_norm_euks_nema, Core_Fraction == "0_2") %>% prune_taxa(taxa_sums(.) > 0, .)
+ddt_phylo_norm_euks_nema_24 <-  subset_samples(ddt_phylo_norm_euks_nema, Core_Fraction == "2_4") %>% prune_taxa(taxa_sums(.) > 0, .)
+ddt_phylo_norm_euks_nema_46 <-  subset_samples(ddt_phylo_norm_euks_nema, Core_Fraction == "4_6") %>% prune_taxa(taxa_sums(.) > 0, .)
+ddt_phylo_norm_euks_nema_68 <-  subset_samples(ddt_phylo_norm_euks_nema, Core_Fraction == "6_8") %>% prune_taxa(taxa_sums(.) > 0, .)
+
+```
+
