@@ -2,6 +2,15 @@ This is a script (in a larger series of broken down scripts containing analysis 
 Author: Hannah Budroe
 Start Date: 10/30/25
 
+Install libraries ----
+```{r message = FALSE}
+library(phyloseq)
+library(tidyverse)
+library(vegan) 
+```
+
+
+
 NMDS Clustering All Euks ----
 ```{r}
 ###Plain NMDS no transformation

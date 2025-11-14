@@ -2,4 +2,154 @@ This is a script (in a larger series of broken down scripts containing analysis 
 Author: Hannah Budroe
 Start Date: 10/30/25
 
+Libraries ----
+```{r}
+library(tidyverse)
+library(phyloseq)
+library(vegan)
+library(fantaxtic) #nested tax plots
+library(ALDEx2) #run aldex
+library(ComplexHeatmap) #aldex plotting
+library(RColorBrewer) #aldex plotting
+```
+
+
+Fantaxtic Taxonomic Plots
+```{r}
+###Plot overall top taxa
+topasv <- top_taxa(ddt_phylo_norm_euks_meio, n_taxa = 30, include_na_taxa = T) 
+ddt_phylo_norm_euks_meio %>% subset_samples(Core_Fraction == "0_2") %>% top_taxa(n_taxa = 10, include_na_taxa = T) -> topasv #top taxa in 02 core_fraction
+plot_nested_bar(ps_obj = topasv$ps_obj,
+                top_level = "Taxon14", #phylum
+                nested_level = "Taxon22")+ #family
+  facet_wrap(~Zone+Dive, scales = "free_x")
+
+
+###Plot nested top taxa
+top_nested <- nested_top_taxa(ddt_phylo_norm_euks_meio,
+                              top_tax_level = "Taxon14",
+                              nested_tax_level = "Taxon21",
+                              n_top_taxa = 5, 
+                              n_nested_taxa = 5, include_na_taxa = T)
+plot_nested_bar(ps_obj = top_nested$ps_obj,
+                top_level = "Taxon14",
+                nested_level = "Taxon21")+
+  facet_wrap(~Core_Fraction, scales = "free_x")
+
+###Plot top taxa within groups
+top_grouped <- top_taxa(ddt_phylo_norm_euks_meio,
+                        n_taxa = 3,
+                        grouping = "Core_Fraction")
+plot_nested_bar(top_grouped$ps_obj, top_level = "Taxon14", #phylum
+                nested_level = "Taxon21")+
+  facet_wrap(~Core_Fraction, scales = "free_x")
+top_grouped$top_taxa %>%
+  mutate(abundance = round(abundance, 3)) %>%
+  kable(format = "markdown")
+```
+
+Basic Tax Plot with Abundances at phylum level all meio
+```{r}
+plot_bar(ddt_phylo_norm_euks_meio, "Sample", fill="Taxon14") +
+  geom_bar(aes(color=Taxon14), stat="identity")+
+  facet_wrap(~Core_Fraction+Zone, scales = "free_x")
+
+###Plot just 02cm
+ddt_phylo_norm_euks_meio %>% subset_samples(Core_Fraction == "0_2") %>% prune_taxa(taxa_sums(.) > 0, .) %>% plot_bar(., "Sample", fill="Taxon14")+
+  geom_bar(aes(color=Taxon14), stat="identity")+
+  ggtitle("0-2cm only")#+
+  facet_wrap(~Core_Fraction+Zone, scales = "free_x")
+```
+
+
+Basic level taxonomic exploration of non-nematodes
+```{r}
+###Subset out xenacoelomorphs
+ddt_phylo_norm_euks_meio %>% subset_taxa(Taxon14 == "Xenacoelomorpha") -> df
+ddt_phylo_norm_euks_meio %>% subset_taxa(Taxon14 == "Gastrotricha") -> df
+ddt_phylo_norm_euks_meio %>% subset_taxa(Taxon14 == "Kinorhyncha") -> df
+ddt_phylo_norm_euks_meio %>% subset_taxa(Taxon14 == "Arthropoda") -> df
+ddt_phylo_norm_euks_meio %>% subset_taxa(Taxon14 == "Platyhelminthes") -> df
+ddt_phylo_norm_euks_meio %>% subset_taxa(Taxon14 == "Rotifera") -> df
+ddt_phylo_norm_euks_meio %>% subset_taxa(Taxon14 == "Entoprocta") -> df
+ddt_phylo_norm_euks_meio %>% subset_taxa(Taxon15 == "Polychaeta") -> df
+
+##Plot as fantaxtic (relabund) nested
+plot_nested_bar(df, top_level = "Taxon15", #class
+                nested_level = "Taxon21")+
+  facet_wrap(~Unique_Barrel+Zone, scales = "free_x")
+
+##Plot as regular plot bar with abundances
+plot_bar(df, "Sample", fill="Taxon21") +
+  geom_bar(aes(color=Taxon21), stat="identity")+
+  facet_wrap(~Unique_Barrel+Zone, scales = "free_x")
+plot_bar(df, "Sample", fill="Taxon21") +
+  geom_bar(aes(color=Taxon21), stat="identity")+
+  facet_wrap(~Unique_Barrel+Core_Fraction, scales = "free_x")
+plot_bar(df, "Sample", fill="Taxon21") +
+  geom_bar(aes(color=Taxon21), stat="identity")+
+  facet_wrap(~Core_Fraction, scales = "free_x")
+
+```
+
+Plot of all euks (in 0-2cm) what's making up the difference?
+```{r}
+###All euks in 0-2cm
+ddt_phylo_norm_euks %>% subset_samples(Core_Fraction == "0_2") %>% prune_taxa(taxa_sums(.) > 0, .) %>% plot_bar(., "Sample", fill="Taxon3")+
+  geom_bar(aes(color=Taxon3), stat="identity")+
+  ggtitle("0-2cm only")+
+  facet_wrap(~Zone, scales = "free_x")
+
+###Subset out certain euk groups to plot on their own
+```
+
+Aldex2 of meiofauna
+Figure Differential Abundance of Nematodes
+Aldex2 ~ at the phylum level between halo v no halo?
+```{r}
+###Run aldex2 on 0-2cm initially
+
+#initialize dataset
+#ddt_phylo_norm_euks_meio %>% subset_samples(Core_Fraction == "0_2") %>% prune_taxa(taxa_sums(.) > 0, .) -> df 
+ddt_phylo_norm_euks_meio  -> df #all core fractions
+#ddt_phylo_norm_euks_meio %>% tax_glom("Taxon21") -> df 
+
+#it turns out I'm a fool! and make.unique() is enough to differentiate the chr strings by adding .1 ... can't believe I've been struggling this whole time :/
+df %>% tax_table() %>% data.frame() %>% rownames_to_column(var = "ASV") -> aldex_tax_df #initialize taxonomy table
+make.unique(aldex_tax_df$Taxon21) -> aldex_tax_df$Taxon21 #change duplicates -- adds .1 at end if dup -- this will be useful later when plot
+make.unique(aldex_tax_df$Taxon23) -> aldex_tax_df$Taxon23 #change duplicates for sp level-- this will be useful later when plot
+as.character(sample_data(df)$Core_Fraction) -> comparisons
+#run aldex2 on the dataframe we set up in the beginning
+df %>% otu_table() %>% data.frame() %>% 
+  aldex(., conditions = comparisons, test = "kw",  verbose = TRUE) -> aldex_res
+aldex_res %>% rownames_to_column(var = "ASV") %>%
+  filter(kw.ep < 0.05) %>%
+  arrange(kw.ep, kw.eBH) %>%
+  dplyr::select(ASV, kw.ep, kw.eBH) %>% merge(aldex_tax_df) -> aldex_res_sig
+print(aldex_res_sig) 
+###plot aldex2 heatmap
+#start with generic aldex_res_sig as significant results from aldex combined with taxonomy
+#then merge with otu table to have representation per sample
+#zscore transform abundances
+#plot heatmap
+#df #original dataframe we ran aldex on
+#aldex_res_sig #results from aldex sig
+df %>% otu_table() %>% data.frame() %>% rownames_to_column(., var = "ASV") %>% right_join(aldex_res_sig) %>% column_to_rownames(var = "Taxon21") %>% dplyr::select(-matches("Taxon")) -> aldex_info_df # extract otu table & covert rownames to column, & combine with aldex res, rename rows & then remove taxonomic info from the table using dplyr
+(apply(dplyr::select(aldex_info_df, matches("DDT")), 1, FUN = function(x){log(x+1) - mean(log(x+1))})) %>% t() %>% scale() -> zscore_aldex_res #convoluted looking :) but selects the numerics only (station OTU abundances) & applies the given function (log transformation) over each row, then scales the dataset
+#prepare to plot by creating annotations/labels
+sample_data(df) -> metadata_df #extract original metadata from pseq obj
+metadata_df[order(metadata_df$Core_Fraction, decreasing = T)] -> list #order based on Site (dumpsites 1 v 2) so we can group together
+rownames(list) -> sample
+HeatmapAnnotation(Location = metadata_df$Core_Fraction) -> heatmap_annotation_top
+col_matrix <- brewer.pal(6, "PiYG")
+#plot!
+( hm_gen_location <- Heatmap(zscore_aldex_res, name = "Z-score", col = col_matrix,
+                           column_order = sample, 
+                           top_annotation = heatmap_annotation_top,
+                           cluster_columns = F, 
+                           column_names_gp = gpar(fontsize = 6)) )
+```
+
+
+
 

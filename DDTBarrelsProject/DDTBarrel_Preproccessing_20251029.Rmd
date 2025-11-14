@@ -3,7 +3,7 @@ Author: Hannah Budroe
 Start Date: 10/29/25
 
 Install libraries ----
-```{r}
+```{r message = FALSE}
 library(qiime2R)
 library(decontam)
 library(phyloseq)
@@ -30,7 +30,7 @@ Read in data ----
 ###Set path
 path <- ("~/Desktop/UGA/LabLocalFiles/CodingMe/ddt_qiime/")
 asvs <- read_qza(paste0(path, "04-dada2-feature-table.qza")) #Read asv table
-taxonomy <- read_qza(paste0(path,"05.1-taxonomy-blast-90-1-hannahmeiodb.qza")) #Read tax table
+taxonomy <- read_qza(paste0(path,"05.1-taxonomy-blast-90-1-hannahmeiodb-20251110.qza")) #Read tax table
 metadata <- read.csv(paste0(path, "2025-01-03-ddt-metadata.csv")) #Read metadata csv
 
 ###Leave space here to read in phylogenetic tree tree <- read_qza(paste0(path,
@@ -119,6 +119,22 @@ metadata$Unique_Barrel <- factor(metadata$Unique_Barrel, levels = c("Background 
 
 #make all the concentration/number columns actually numeric (chr when read in bc NA?)
 metadata %>% mutate_at(vars("Depth", "Salinity", "Temperature", "Oxygen", "Latitude", "Longitude", "DDT", "DDE", "DDD", "DDMU", "DDX", "PAHs", "PCBs", "TOM", "H2O", "Porosity", "Sand", "Silt_Clay", "Chla", "Phaeo", "CPE", "TOC", "TN", "X13CVPDB", "X15NAir", "Chla_Phae", "Nema_Count"), as.numeric) -> metadata
+
+#Adjust the halo column to accurately reflect what I think #Bacterial_Halo
+for(i in c(1:nrow(metadata))){
+  if(metadata$Unique_Barrel[i] %in% c("Barrel 3", "Barrel 4", "Barrel 5")){
+  metadata$Bacterial_Halo[i] = "Yes"
+  } else {
+  metadata$Bacterial_Halo[i] = "No"
+  } }
+
+metadata$On_Halo <- NA #Zone B of halo barrels
+for(i in c(1:nrow(metadata))){
+  if(metadata$Bacterial_Halo[i] == "Yes" & metadata$Zone[i] == "B"){
+  metadata$On_Halo[i] = "Yes"
+  } else {
+  metadata$On_Halo[i] = "No"
+  } }
 ```
 
 Create phyloseq object! ----
@@ -222,4 +238,6 @@ ddt_phylo_norm_euks_nema_46 <-  subset_samples(ddt_phylo_norm_euks_nema, Core_Fr
 ddt_phylo_norm_euks_nema_68 <-  subset_samples(ddt_phylo_norm_euks_nema, Core_Fraction == "6_8") %>% prune_taxa(taxa_sums(.) > 0, .)
 
 ```
+
+
 
